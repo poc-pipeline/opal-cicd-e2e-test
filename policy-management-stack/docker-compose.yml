@@ -70,12 +70,8 @@ services:
     depends_on:
       policy-loader:
         condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8181/health"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 5s
+    # OPA distroless image doesn't have wget/curl for healthchecks
+    # Health is verified by workflow health check steps after startup
     networks:
       - e2e-network
 
@@ -99,7 +95,7 @@ services:
       - api-data:/app/data
     depends_on:
       opa:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 10s
@@ -145,7 +141,7 @@ services:
       - SPRING_PROFILES_ACTIVE=docker
     depends_on:
       opa:
-        condition: service_healthy
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
       interval: 10s
