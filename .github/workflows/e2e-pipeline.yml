@@ -341,12 +341,19 @@ jobs:
             git clone --depth 1 https://github.com/poc-pipeline/cicd-gating-policies.git /tmp/policies-repo
           fi
 
+      - name: Clone Policy Management System
+        run: |
+          echo "Cloning Policy Management System for local build..."
+          git clone --depth 1 https://github.com/poc-pipeline/policy-management-system.git ../policy-management-system
+          ls -la ../policy-management-system/
+
       - name: Start Policy Management Stack
         run: |
           export GITHUB_SHA=${{ github.sha }}
-          docker compose -f policy-management-stack/docker-compose.yml up -d
+          export POLICY_REPO_PATH=/tmp/policies-repo
+          docker compose -f policy-management-stack/docker-compose.yml up -d --build
           echo "Waiting for services to start..."
-          sleep 45
+          sleep 90
 
       - name: Health Check - Test Application
         run: |

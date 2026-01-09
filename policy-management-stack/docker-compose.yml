@@ -17,23 +17,28 @@ version: '3.8'
 
 services:
   # ===========================================================================
-  # Policy Loader - Clones policies from GitHub
+  # Policy Loader - Copies policies from local clone
   # ===========================================================================
+  # NOTE: Policies should be cloned to /tmp/policies-repo before running docker compose
+  # In CI: git clone cicd-gating-policies /tmp/policies-repo
+  # Locally: git clone cicd-gating-policies /tmp/policies-repo
   policy-loader:
-    image: alpine/git:latest
+    image: alpine:latest
     container_name: e2e-policy-loader
     command: >
       sh -c "
-        echo 'Cloning policy repository...';
-        rm -rf /policies/* /data/* 2>/dev/null || true;
-        git clone --depth 1 https://github.com/poc-pipeline/cicd-gating-policies.git /tmp/repo;
-        if [ -d /tmp/repo/policies ]; then
-          cp -r /tmp/repo/policies/* /policies/;
+        echo 'Copying policies from local repository...';
+        if [ -d /source-policies/policies ]; then
+          cp -r /source-policies/policies/* /policies/ 2>/dev/null || mkdir -p /policies;
           echo 'Policies copied successfully';
           ls -la /policies/;
+        else
+          echo 'Warning: No policies found in /source-policies/policies';
+          echo 'Creating empty policies directory...';
+          mkdir -p /policies;
         fi;
-        if [ -d /tmp/repo/data ]; then
-          cp -r /tmp/repo/data/* /data/;
+        if [ -d /source-policies/data ]; then
+          cp -r /source-policies/data/* /data/ 2>/dev/null || mkdir -p /data;
           echo 'Data files copied successfully';
         fi;
         echo 'Policy loader completed';
@@ -41,6 +46,7 @@ services:
     volumes:
       - policies:/policies
       - data:/data
+      - ${POLICY_REPO_PATH:-/tmp/policies-repo}:/source-policies:ro
     networks:
       - e2e-network
 
