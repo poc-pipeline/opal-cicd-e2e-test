@@ -434,7 +434,7 @@ jobs:
         run: |
           echo "Checking Policy Management API health..."
           for i in {1..20}; do
-            if curl -sf http://localhost:8000/api/v1/health; then
+            if curl -sf http://localhost:8000/health; then
               echo "Policy Management API is healthy!"
               exit 0
             fi
