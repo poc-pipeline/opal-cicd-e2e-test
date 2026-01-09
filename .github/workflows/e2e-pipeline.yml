@@ -373,9 +373,30 @@ jobs:
         run: |
           export GITHUB_SHA=${{ github.sha }}
           export POLICY_REPO_PATH=/tmp/policies-repo
-          docker compose -f policy-management-stack/docker-compose.yml up -d --build
+
+          # Start stack and capture any errors
+          if ! docker compose -f policy-management-stack/docker-compose.yml up -d --build 2>&1; then
+            echo "Docker Compose failed. Checking logs..."
+            docker compose -f policy-management-stack/docker-compose.yml logs --tail=100 || true
+            docker ps -a || true
+            exit 1
+          fi
+
           echo "Waiting for services to start..."
-          sleep 90
+          sleep 30
+
+          # Check if all containers are running
+          echo "Container status:"
+          docker ps -a
+
+          # Show logs for any containers that exited
+          for container in e2e-policy-loader e2e-opa e2e-policy-api e2e-policy-ui e2e-test-app; do
+            STATUS=$(docker inspect --format='{{.State.Status}}' $container 2>/dev/null || echo "not_found")
+            if [ "$STATUS" = "exited" ]; then
+              echo "=== Logs for exited container $container ==="
+              docker logs $container 2>&1 | tail -50
+            fi
+          done
 
       - name: Health Check - Test Application
         run: |
