@@ -325,8 +325,21 @@ jobs:
         run: docker load < docker-image.tar
 
       - name: Clone Policy Repository
+        env:
+          SSH_KEY: ${{ secrets.OPAL_POLICY_REPO_SSH_KEY }}
         run: |
-          git clone --depth 1 https://github.com/poc-pipeline/cicd-gating-policies.git /tmp/policies-repo
+          if [ -n "$SSH_KEY" ]; then
+            echo "Cloning from private policy repository..."
+            mkdir -p ~/.ssh
+            echo "$SSH_KEY" > ~/.ssh/opal_key
+            chmod 600 ~/.ssh/opal_key
+            ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/opal_key" \
+              git clone --depth 1 git@github.com:poc-pipeline/cicd-gating-policies.git /tmp/policies-repo
+          else
+            echo "Cloning public policy repository..."
+            git clone --depth 1 https://github.com/poc-pipeline/cicd-gating-policies.git /tmp/policies-repo
+          fi
 
       - name: Start Policy Management Stack
         run: |
