@@ -90,7 +90,7 @@ services:
       - OPA_URL=http://opa:8181
       - DATABASE_URL=sqlite:///./data/policy_mgmt.db
       - DEBUG=true
-      - CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+      - CORS_ORIGINS=["http://localhost:3000","http://localhost:5173"]
     volumes:
       - api-data:/app/data
     depends_on:
