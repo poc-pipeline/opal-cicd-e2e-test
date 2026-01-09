@@ -103,7 +103,9 @@ services:
       retries: 10
       start_period: 10s
     networks:
-      - e2e-network
+      e2e-network:
+        aliases:
+          - api
 
   # ===========================================================================
   # Policy Management UI (Vue 3 + Nginx)
