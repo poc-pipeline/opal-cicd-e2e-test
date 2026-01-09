@@ -342,9 +342,31 @@ jobs:
           fi
 
       - name: Clone Policy Management System
+        env:
+          SSH_KEY: ${{ secrets.POLICY_MGMT_SYSTEM_SSH_KEY }}
+          OPAL_SSH_KEY: ${{ secrets.OPAL_POLICY_REPO_SSH_KEY }}
         run: |
-          echo "Cloning Policy Management System for local build..."
-          git clone --depth 1 https://github.com/poc-pipeline/policy-management-system.git ../policy-management-system
+          # Try dedicated key first, fall back to OPAL key, then HTTPS
+          if [ -n "$SSH_KEY" ]; then
+            echo "Cloning Policy Management System using dedicated SSH key..."
+            mkdir -p ~/.ssh
+            echo "$SSH_KEY" > ~/.ssh/pms_key
+            chmod 600 ~/.ssh/pms_key
+            ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/pms_key" \
+              git clone --depth 1 git@github.com:poc-pipeline/policy-management-system.git ../policy-management-system
+          elif [ -n "$OPAL_SSH_KEY" ]; then
+            echo "Cloning Policy Management System using OPAL SSH key..."
+            mkdir -p ~/.ssh
+            echo "$OPAL_SSH_KEY" > ~/.ssh/opal_key
+            chmod 600 ~/.ssh/opal_key
+            ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+            GIT_SSH_COMMAND="ssh -i ~/.ssh/opal_key" \
+              git clone --depth 1 git@github.com:poc-pipeline/policy-management-system.git ../policy-management-system
+          else
+            echo "Cloning Policy Management System using HTTPS..."
+            git clone --depth 1 https://github.com/poc-pipeline/policy-management-system.git ../policy-management-system
+          fi
           ls -la ../policy-management-system/
 
       - name: Start Policy Management Stack
