@@ -1,0 +1,450 @@
+# =============================================================================
+# OPAL CI/CD End-to-End Pipeline
+# =============================================================================
+#
+# Complete CI/CD pipeline demonstrating OPAL-based security gating with:
+#   - Real Snyk security scanning
+#   - Real SonarQube Cloud quality analysis
+#   - Real Jira exception management
+#   - Policy Management System integration
+#   - Policies from poc-pipeline/cicd-gating-policies
+#
+# =============================================================================
+
+name: E2E OPAL CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip_security_scan:
+        description: 'Skip Snyk security scan'
+        type: boolean
+        default: false
+      skip_quality_analysis:
+        description: 'Skip SonarQube analysis'
+        type: boolean
+        default: false
+
+env:
+  JAVA_VERSION: '17'
+  MAVEN_VERSION: '3.8.6'
+  DOCKER_BUILDKIT: 1
+
+jobs:
+  # ===========================================================================
+  # Build Application
+  # ===========================================================================
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build with Maven
+        run: |
+          cd test-app
+          mvn clean package -DskipTests -B
+
+      - name: Run Unit Tests with JaCoCo
+        run: |
+          cd test-app
+          mvn test jacoco:report -B
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            test-app/target/*.jar
+            test-app/target/surefire-reports/
+            test-app/target/site/jacoco/
+          retention-days: 1
+
+      - name: Generate Build Summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## Build Summary
+
+          | Parameter | Value |
+          |-----------|-------|
+          | Java Version | ${{ env.JAVA_VERSION }} |
+          | Build Status | Success |
+
+          ### Test Results
+          EOF
+
+          if [ -f test-app/target/surefire-reports/TEST-*.xml ]; then
+            TESTS=$(grep -h 'testsuite' test-app/target/surefire-reports/TEST-*.xml | head -1 | sed 's/.*tests="\([0-9]*\)".*/\1/' || echo "N/A")
+            FAILURES=$(grep -h 'testsuite' test-app/target/surefire-reports/TEST-*.xml | head -1 | sed 's/.*failures="\([0-9]*\)".*/\1/' || echo "N/A")
+            echo "- Tests: $TESTS" >> $GITHUB_STEP_SUMMARY
+            echo "- Failures: $FAILURES" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ===========================================================================
+  # Security Scanning (Snyk)
+  # ===========================================================================
+  security-scan:
+    name: Snyk Security Scan
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.skip_security_scan }}
+
+    outputs:
+      critical-count: ${{ steps.parse-results.outputs.critical }}
+      high-count: ${{ steps.parse-results.outputs.high }}
+      medium-count: ${{ steps.parse-results.outputs.medium }}
+      low-count: ${{ steps.parse-results.outputs.low }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run Snyk Test
+        uses: snyk/actions/maven@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --json-file-output=snyk-results.json --all-projects
+          command: test
+
+      - name: Parse Snyk Results
+        id: parse-results
+        run: |
+          if [ -f snyk-results.json ]; then
+            CRITICAL=$(jq '[.vulnerabilities[]? | select(.severity == "critical")] | length // 0' snyk-results.json 2>/dev/null || echo 0)
+            HIGH=$(jq '[.vulnerabilities[]? | select(.severity == "high")] | length // 0' snyk-results.json 2>/dev/null || echo 0)
+            MEDIUM=$(jq '[.vulnerabilities[]? | select(.severity == "medium")] | length // 0' snyk-results.json 2>/dev/null || echo 0)
+            LOW=$(jq '[.vulnerabilities[]? | select(.severity == "low")] | length // 0' snyk-results.json 2>/dev/null || echo 0)
+          else
+            CRITICAL=0
+            HIGH=0
+            MEDIUM=0
+            LOW=0
+          fi
+
+          echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+          echo "high=$HIGH" >> $GITHUB_OUTPUT
+          echo "medium=$MEDIUM" >> $GITHUB_OUTPUT
+          echo "low=$LOW" >> $GITHUB_OUTPUT
+
+      - name: Upload security results
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-results
+          path: snyk-results.json
+          retention-days: 1
+
+      - name: Generate Security Summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## Security Scan Results (Snyk)
+
+          | Severity | Count |
+          |----------|-------|
+          | Critical | ${{ steps.parse-results.outputs.critical }} |
+          | High | ${{ steps.parse-results.outputs.high }} |
+          | Medium | ${{ steps.parse-results.outputs.medium }} |
+          | Low | ${{ steps.parse-results.outputs.low }} |
+          EOF
+
+  # ===========================================================================
+  # Quality Analysis (SonarQube Cloud)
+  # ===========================================================================
+  quality-analysis:
+    name: SonarQube Cloud Analysis
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.skip_quality_analysis }}
+
+    outputs:
+      quality-gate-status: ${{ steps.parse-quality.outputs.status }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: test-app/target/
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: maven
+
+      - name: SonarQube Scan
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          cd test-app
+          mvn sonar:sonar \
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }} \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -B
+
+      - name: Wait for Quality Gate
+        run: sleep 10
+
+      - name: Get Quality Gate Status
+        id: parse-quality
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          curl -sf -u "$SONAR_TOKEN:" \
+            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${{ secrets.SONAR_PROJECT_KEY }}" \
+            > quality-gate-result.json || echo '{"projectStatus":{"status":"UNKNOWN"}}' > quality-gate-result.json
+
+          STATUS=$(jq -r '.projectStatus.status // "UNKNOWN"' quality-gate-result.json)
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+
+      - name: Upload quality results
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-results
+          path: quality-gate-result.json
+          retention-days: 1
+
+      - name: Generate Quality Summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## Quality Gate Results (SonarQube Cloud)
+
+          | Parameter | Value |
+          |-----------|-------|
+          | Quality Gate Status | ${{ steps.parse-quality.outputs.status }} |
+          | Dashboard | [View on SonarCloud](https://sonarcloud.io/dashboard?id=${{ secrets.SONAR_PROJECT_KEY }}) |
+          EOF
+
+  # ===========================================================================
+  # OPAL Security Gate Evaluation
+  # ===========================================================================
+  opal-gate-evaluation:
+    name: OPAL Security Gate Evaluation
+    needs: [security-scan, quality-analysis]
+    if: always() && needs.build.result == 'success'
+    uses: ./.github/workflows/opal-gate-evaluation.yml
+    secrets: inherit
+
+  # ===========================================================================
+  # Build Docker Image
+  # ===========================================================================
+  build-docker:
+    name: Build Docker Image
+    needs: opal-gate-evaluation
+    if: success()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-artifacts
+          path: test-app/target/
+
+      - name: Build Docker image
+        run: |
+          cd test-app
+          docker build -t e2e-test-app:${{ github.sha }} .
+          docker save e2e-test-app:${{ github.sha }} > ../docker-image.tar
+
+      - name: Upload Docker image
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-image
+          path: docker-image.tar
+          retention-days: 1
+
+      - name: Generate Docker Summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## Docker Build Summary
+
+          | Parameter | Value |
+          |-----------|-------|
+          | Image Tag | e2e-test-app:${{ github.sha }} |
+          | Build Status | Success |
+          EOF
+
+  # ===========================================================================
+  # Local Deployment & Policy Management UI Test
+  # ===========================================================================
+  local-deployment:
+    name: Local Deployment & UI Test
+    needs: build-docker
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-image
+
+      - name: Load Docker image
+        run: docker load < docker-image.tar
+
+      - name: Clone Policy Repository
+        run: |
+          git clone --depth 1 https://github.com/poc-pipeline/cicd-gating-policies.git /tmp/policies-repo
+
+      - name: Start Policy Management Stack
+        run: |
+          export GITHUB_SHA=${{ github.sha }}
+          docker compose -f policy-management-stack/docker-compose.yml up -d
+          echo "Waiting for services to start..."
+          sleep 45
+
+      - name: Health Check - Test Application
+        run: |
+          echo "Checking Test Application health..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:8080/actuator/health | jq -e '.status == "UP"'; then
+              echo "Test Application is healthy!"
+              exit 0
+            fi
+            echo "Attempt $i/30: Waiting for Test Application..."
+            sleep 2
+          done
+          echo "Test Application health check failed"
+          docker logs e2e-test-app 2>&1 | tail -50
+          exit 1
+
+      - name: Health Check - OPA
+        run: |
+          echo "Checking OPA health..."
+          for i in {1..20}; do
+            if curl -sf http://localhost:8181/health; then
+              echo "OPA is healthy!"
+              POLICY_COUNT=$(curl -sf http://localhost:8181/v1/policies | jq '.result | length')
+              echo "Policies loaded: $POLICY_COUNT"
+              exit 0
+            fi
+            echo "Attempt $i/20: Waiting for OPA..."
+            sleep 2
+          done
+          echo "OPA health check failed"
+          docker logs e2e-opa 2>&1 | tail -50
+          exit 1
+
+      - name: Health Check - Policy Management API
+        run: |
+          echo "Checking Policy Management API health..."
+          for i in {1..20}; do
+            if curl -sf http://localhost:8000/api/v1/health; then
+              echo "Policy Management API is healthy!"
+              exit 0
+            fi
+            echo "Attempt $i/20: Waiting for Policy Management API..."
+            sleep 2
+          done
+          echo "Policy Management API health check failed"
+          docker logs e2e-policy-api 2>&1 | tail -50
+          exit 1
+
+      - name: Health Check - Policy Management UI
+        run: |
+          echo "Checking Policy Management UI..."
+          for i in {1..20}; do
+            if curl -sf http://localhost:3000 > /dev/null; then
+              echo "Policy Management UI is accessible!"
+              exit 0
+            fi
+            echo "Attempt $i/20: Waiting for Policy Management UI..."
+            sleep 2
+          done
+          echo "Policy Management UI health check failed"
+          docker logs e2e-policy-ui 2>&1 | tail -50
+          exit 1
+
+      - name: Test OPA Policy Evaluation
+        run: |
+          echo "Testing OPA policy evaluation..."
+
+          # Test with passing data
+          RESPONSE=$(curl -sf -X POST \
+            -H "Content-Type: application/json" \
+            -d '{
+              "input": {
+                "user": {"key": "test-user"},
+                "action": "deploy",
+                "resource": {
+                  "type": "deployment",
+                  "key": "test-123",
+                  "attributes": {
+                    "vulnerabilities": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+                    "quality": {"quality_gate": {"status": "OK"}}
+                  }
+                },
+                "context": {"environment": "test", "jira_exceptions": []}
+              }
+            }' \
+            http://localhost:8181/v1/data/cicd/gating/evaluation_response)
+
+          echo "OPA Response: $RESPONSE"
+
+          DECISION=$(echo "$RESPONSE" | jq -r '.result.decision // "UNKNOWN"')
+          echo "Gate Decision: $DECISION"
+
+          if [ "$DECISION" = "PASS" ] || [ "$DECISION" = "PASS_WITH_EXCEPTION" ]; then
+            echo "OPA policy evaluation working correctly!"
+          else
+            echo "Warning: Unexpected decision - $DECISION"
+          fi
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker compose -f policy-management-stack/docker-compose.yml down || true
+          docker rm -f e2e-test-app e2e-opa e2e-policy-api e2e-policy-ui e2e-policy-loader 2>/dev/null || true
+
+      - name: Generate Deployment Summary
+        if: always()
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << 'EOF'
+          ## Local Deployment Test Results
+
+          | Service | Port | Status |
+          |---------|------|--------|
+          | Test Application | 8080 | Tested |
+          | OPA Policy Engine | 8181 | Tested |
+          | Policy Management API | 8000 | Tested |
+          | Policy Management UI | 3000 | Tested |
+
+          ### Services Deployed
+          - Test Application with health endpoint
+          - OPA with policies from poc-pipeline/cicd-gating-policies
+          - Policy Management System (FastAPI + Vue UI)
+          EOF

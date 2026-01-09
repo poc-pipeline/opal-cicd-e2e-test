@@ -1,0 +1,168 @@
+# =============================================================================
+# Policy Management Stack for E2E Testing
+# =============================================================================
+#
+# Full stack deployment including:
+#   - OPA (Open Policy Agent) with policies from cicd-gating-policies
+#   - Policy Management API (FastAPI)
+#   - Policy Management UI (Vue 3 + Nginx)
+#   - Test Application
+#
+# Usage:
+#   docker compose -f policy-management-stack/docker-compose.yml up -d
+#
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # Policy Loader - Clones policies from GitHub
+  # ===========================================================================
+  policy-loader:
+    image: alpine/git:latest
+    container_name: e2e-policy-loader
+    command: >
+      sh -c "
+        echo 'Cloning policy repository...';
+        rm -rf /policies/* /data/* 2>/dev/null || true;
+        git clone --depth 1 https://github.com/poc-pipeline/cicd-gating-policies.git /tmp/repo;
+        if [ -d /tmp/repo/policies ]; then
+          cp -r /tmp/repo/policies/* /policies/;
+          echo 'Policies copied successfully';
+          ls -la /policies/;
+        fi;
+        if [ -d /tmp/repo/data ]; then
+          cp -r /tmp/repo/data/* /data/;
+          echo 'Data files copied successfully';
+        fi;
+        echo 'Policy loader completed';
+      "
+    volumes:
+      - policies:/policies
+      - data:/data
+    networks:
+      - e2e-network
+
+  # ===========================================================================
+  # OPA - Open Policy Agent
+  # ===========================================================================
+  opa:
+    image: openpolicyagent/opa:latest
+    container_name: e2e-opa
+    ports:
+      - "8181:8181"
+    command:
+      - "run"
+      - "--server"
+      - "--addr=0.0.0.0:8181"
+      - "--log-level=info"
+      - "/policies"
+    volumes:
+      - policies:/policies:ro
+      - data:/data:ro
+    depends_on:
+      policy-loader:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8181/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    networks:
+      - e2e-network
+
+  # ===========================================================================
+  # Policy Management API (FastAPI)
+  # ===========================================================================
+  policy-api:
+    build:
+      context: ../../policy-management-system/backend
+      dockerfile: Dockerfile
+    image: policy-management-api:latest
+    container_name: e2e-policy-api
+    ports:
+      - "8000:8000"
+    environment:
+      - OPA_URL=http://opa:8181
+      - DATABASE_URL=sqlite:///./data/policy_mgmt.db
+      - DEBUG=true
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:5173
+    volumes:
+      - api-data:/app/data
+    depends_on:
+      opa:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - e2e-network
+
+  # ===========================================================================
+  # Policy Management UI (Vue 3 + Nginx)
+  # ===========================================================================
+  policy-ui:
+    build:
+      context: ../../policy-management-system/frontend
+      dockerfile: Dockerfile
+    image: policy-management-ui:latest
+    container_name: e2e-policy-ui
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      policy-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - e2e-network
+
+  # ===========================================================================
+  # Test Application
+  # ===========================================================================
+  test-app:
+    image: e2e-test-app:${GITHUB_SHA:-latest}
+    container_name: e2e-test-app
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=docker
+    depends_on:
+      opa:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - e2e-network
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  policies:
+    driver: local
+  data:
+    driver: local
+  api-data:
+    driver: local
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  e2e-network:
+    driver: bridge
