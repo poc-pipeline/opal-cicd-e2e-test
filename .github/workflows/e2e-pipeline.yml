@@ -205,11 +205,13 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: SonarQube Scan
+      - name: Compile and Run SonarQube Scan
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           cd test-app
+          # Compile to ensure classes exist for SonarQube analysis
+          mvn compile -B
           mvn sonar:sonar \
             -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
             -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }} \
