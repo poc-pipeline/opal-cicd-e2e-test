@@ -1,0 +1,133 @@
+name: Test Local Policy Gates
+
+on:
+  workflow_dispatch:
+    inputs:
+      critical:
+        description: 'Critical vulnerabilities'
+        default: '0'
+        type: string
+      high:
+        description: 'High vulnerabilities'
+        default: '2'
+        type: string
+      medium:
+        description: 'Medium vulnerabilities'
+        default: '5'
+        type: string
+      low:
+        description: 'Low vulnerabilities'
+        default: '10'
+        type: string
+
+jobs:
+  test-gates:
+    name: Evaluate Policy Gates
+    runs-on: self-hosted
+
+    steps:
+      - name: Test Policy API Health
+        run: |
+          echo "Testing Policy Management API at localhost:8000..."
+          if curl -sf http://localhost:8000/health; then
+            echo "✅ Policy Management API is healthy"
+          else
+            echo "❌ Policy Management API is not reachable"
+            exit 1
+          fi
+
+      - name: Evaluate Gates
+        id: evaluate
+        run: |
+          echo "Evaluating gates with:"
+          echo "  Critical: ${{ inputs.critical }}"
+          echo "  High: ${{ inputs.high }}"
+          echo "  Medium: ${{ inputs.medium }}"
+          echo "  Low: ${{ inputs.low }}"
+          echo ""
+
+          RESPONSE=$(curl -s -X POST http://localhost:8000/api/v1/pipeline/evaluate \
+            -H "Content-Type: application/json" \
+            -H "X-API-Key: dev-pipeline-key" \
+            -d '{
+              "repository": "${{ github.repository }}",
+              "commit": "${{ github.sha }}",
+              "branch": "${{ github.ref_name }}",
+              "user": "${{ github.actor }}",
+              "environment": "test",
+              "workflow": "${{ github.workflow }}",
+              "vulnerabilities": {
+                "critical": ${{ inputs.critical }},
+                "high": ${{ inputs.high }},
+                "medium": ${{ inputs.medium }},
+                "low": ${{ inputs.low }}
+              }
+            }')
+
+          echo "Raw Response: $RESPONSE"
+
+          DECISION=$(echo "$RESPONSE" | jq -r '.decision')
+          EXIT_CODE=$(echo "$RESPONSE" | jq -r '.exit_code')
+          SUMMARY=$(echo "$RESPONSE" | jq -r '.summary')
+          AUDIT_ID=$(echo "$RESPONSE" | jq -r '.audit_id')
+
+          echo "decision=$DECISION" >> $GITHUB_OUTPUT
+          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+
+          # Generate GitHub Step Summary
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## 🔒 Gate Evaluation Results
+
+          | Field | Value |
+          |-------|-------|
+          | **Decision** | \`$DECISION\` |
+          | **Exit Code** | $EXIT_CODE |
+          | **Summary** | $SUMMARY |
+          | **Audit ID** | $AUDIT_ID |
+
+          ### Input Vulnerabilities
+          | Severity | Count |
+          |----------|-------|
+          | Critical | ${{ inputs.critical }} |
+          | High | ${{ inputs.high }} |
+          | Medium | ${{ inputs.medium }} |
+          | Low | ${{ inputs.low }} |
+
+          ### Full API Response
+          \`\`\`json
+          $(echo "$RESPONSE" | jq .)
+          \`\`\`
+
+          ---
+          *Evaluated by [Policy Management System](http://localhost:3000)*
+          EOF
+
+      - name: Enforce Gate Decision
+        run: |
+          EXIT_CODE=${{ steps.evaluate.outputs.exit_code }}
+          DECISION=${{ steps.evaluate.outputs.decision }}
+
+          echo ""
+          echo "========================================"
+          echo "  GATE DECISION: $DECISION"
+          echo "========================================"
+          echo ""
+
+          case "$EXIT_CODE" in
+            0)
+              echo "✅ PASS - Deployment authorized"
+              ;;
+            1)
+              echo "⚠️ WARNING - Non-blocking issues detected"
+              echo "Pipeline continues but issues should be addressed"
+              ;;
+            2)
+              echo "❌ BLOCKED - Deployment not authorized"
+              echo "Create a Jira exception ticket to bypass this gate"
+              exit 1
+              ;;
+            *)
+              echo "❓ Unknown exit code: $EXIT_CODE"
+              exit 1
+              ;;
+          esac
