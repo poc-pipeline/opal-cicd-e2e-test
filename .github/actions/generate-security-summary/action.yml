@@ -1,0 +1,127 @@
+name: 'Generate Security Summary'
+description: 'Parses Snyk results and generates GitHub step summary with vulnerability tables'
+
+inputs:
+  results-file:
+    description: 'Path to the Snyk results JSON file'
+    required: true
+  summary-title:
+    description: 'Title for the security summary section'
+    required: false
+    default: 'Security Scan Results (Snyk)'
+
+outputs:
+  critical-count:
+    description: 'Number of critical vulnerabilities'
+    value: ${{ steps.parse-results.outputs.critical-count }}
+  high-count:
+    description: 'Number of high vulnerabilities'
+    value: ${{ steps.parse-results.outputs.high-count }}
+  medium-count:
+    description: 'Number of medium vulnerabilities'
+    value: ${{ steps.parse-results.outputs.medium-count }}
+  low-count:
+    description: 'Number of low vulnerabilities'
+    value: ${{ steps.parse-results.outputs.low-count }}
+  total-count:
+    description: 'Total vulnerabilities'
+    value: ${{ steps.parse-results.outputs.total-count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Parse security results
+      id: parse-results
+      shell: bash
+      run: |
+        RESULTS_FILE="${{ inputs.results-file }}"
+
+        if [ ! -f "$RESULTS_FILE" ]; then
+          echo "Results file not found: $RESULTS_FILE"
+          echo "critical-count=0" >> $GITHUB_OUTPUT
+          echo "high-count=0" >> $GITHUB_OUTPUT
+          echo "medium-count=0" >> $GITHUB_OUTPUT
+          echo "low-count=0" >> $GITHUB_OUTPUT
+          echo "total-count=0" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        echo "Parsing Snyk results from: $RESULTS_FILE"
+
+        # Extract vulnerability counts by severity
+        CRITICAL=$(jq '[.vulnerabilities[]? | select(.severity == "critical")] | length // 0' "$RESULTS_FILE" 2>/dev/null || echo 0)
+        HIGH=$(jq '[.vulnerabilities[]? | select(.severity == "high")] | length // 0' "$RESULTS_FILE" 2>/dev/null || echo 0)
+        MEDIUM=$(jq '[.vulnerabilities[]? | select(.severity == "medium")] | length // 0' "$RESULTS_FILE" 2>/dev/null || echo 0)
+        LOW=$(jq '[.vulnerabilities[]? | select(.severity == "low")] | length // 0' "$RESULTS_FILE" 2>/dev/null || echo 0)
+        TOTAL=$((CRITICAL + HIGH + MEDIUM + LOW))
+
+        echo "Vulnerabilities found:"
+        echo "  Critical: $CRITICAL"
+        echo "  High: $HIGH"
+        echo "  Medium: $MEDIUM"
+        echo "  Low: $LOW"
+        echo "  Total: $TOTAL"
+
+        echo "critical-count=$CRITICAL" >> $GITHUB_OUTPUT
+        echo "high-count=$HIGH" >> $GITHUB_OUTPUT
+        echo "medium-count=$MEDIUM" >> $GITHUB_OUTPUT
+        echo "low-count=$LOW" >> $GITHUB_OUTPUT
+        echo "total-count=$TOTAL" >> $GITHUB_OUTPUT
+
+    - name: Generate security summary
+      shell: bash
+      run: |
+        RESULTS_FILE="${{ inputs.results-file }}"
+        CRITICAL="${{ steps.parse-results.outputs.critical-count }}"
+        HIGH="${{ steps.parse-results.outputs.high-count }}"
+        MEDIUM="${{ steps.parse-results.outputs.medium-count }}"
+        LOW="${{ steps.parse-results.outputs.low-count }}"
+        TOTAL="${{ steps.parse-results.outputs.total-count }}"
+
+        # Determine status icon
+        if [ "$CRITICAL" -gt 0 ]; then
+          STATUS_ICON="BLOCKED"
+          STATUS_COLOR="red"
+        elif [ "$HIGH" -gt 0 ]; then
+          STATUS_ICON="WARNING"
+          STATUS_COLOR="yellow"
+        else
+          STATUS_ICON="PASS"
+          STATUS_COLOR="green"
+        fi
+
+        cat >> $GITHUB_STEP_SUMMARY << EOF
+        ## ${{ inputs.summary-title }}
+
+        | Severity | Count | Gate Impact |
+        |----------|-------|-------------|
+        | Critical | **$CRITICAL** | ${CRITICAL:+Deployment Blocked}${CRITICAL:-OK} |
+        | High | **$HIGH** | ${HIGH:+Review Required}${HIGH:-OK} |
+        | Medium | $MEDIUM | Informational |
+        | Low | $LOW | Informational |
+        | **Total** | **$TOTAL** | - |
+
+        **Security Status:** $STATUS_ICON
+
+        EOF
+
+        # Add top vulnerabilities if any critical or high exist
+        if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+          if [ -f "$RESULTS_FILE" ]; then
+            echo "### Priority Vulnerabilities" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "<details><summary>Click to view top affected packages</summary>" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+
+            jq -r '
+              .vulnerabilities
+              | map(select(.severity == "critical" or .severity == "high"))
+              | .[0:10]
+              | .[]
+              | "- **\(.packageName // .moduleName // "unknown")** (\(.version // "N/A")) - \(.title // .description // "No description") [\(.severity | ascii_upcase)]"
+            ' "$RESULTS_FILE" >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "- Unable to parse vulnerability details" >> $GITHUB_STEP_SUMMARY
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "</details>" >> $GITHUB_STEP_SUMMARY
+          fi
+        fi

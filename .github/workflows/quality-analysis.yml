@@ -1,0 +1,124 @@
+name: Quality Analysis
+
+on:
+  workflow_call:
+    inputs:
+      java-version:
+        description: 'Java version to use'
+        required: false
+        type: string
+        default: '17'
+      working-directory:
+        description: 'Project directory'
+        required: false
+        type: string
+        default: 'test-app'
+    secrets:
+      SONAR_TOKEN:
+        required: true
+      SONAR_PROJECT_KEY:
+        required: true
+      SONAR_ORGANIZATION:
+        required: true
+    outputs:
+      quality-gate-status:
+        description: 'Quality gate status (OK/ERROR/UNKNOWN)'
+        value: ${{ jobs.quality-analysis.outputs.quality-gate-status }}
+
+jobs:
+  quality-analysis:
+    name: SonarQube Cloud Analysis
+    runs-on: ubuntu-latest
+
+    outputs:
+      quality-gate-status: ${{ steps.quality-summary.outputs.quality-gate-status }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java and Maven
+        uses: ./.github/actions/setup-java-maven
+        with:
+          java-version: ${{ inputs.java-version }}
+          working-directory: ${{ inputs.working-directory }}
+
+      - name: Download build artifacts
+        uses: ./.github/actions/download-build-artifacts
+        with:
+          artifact-name: build-artifacts
+          download-path: ${{ inputs.working-directory }}/target
+
+      - name: Compile for SonarQube
+        run: |
+          cd ${{ inputs.working-directory }}
+
+          # Ensure classes directory exists
+          if [ ! -d "target/classes" ]; then
+            echo "Compiling project for SonarQube analysis..."
+            mvn compile -B -q
+          else
+            echo "Classes directory found, skipping compilation"
+          fi
+
+      - name: Run SonarQube Cloud Analysis
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd ${{ inputs.working-directory }}
+
+          mvn sonar:sonar \
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }} \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.token=${{ secrets.SONAR_TOKEN }} \
+            -B
+
+      - name: Wait for Quality Gate processing
+        run: |
+          echo "Waiting for SonarQube to process analysis..."
+          sleep 15
+
+      - name: Get Quality Gate Status
+        id: get-quality-gate
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          echo "Fetching quality gate status..."
+
+          RESPONSE=$(curl -sf -u "$SONAR_TOKEN:" \
+            "https://sonarcloud.io/api/qualitygates/project_status?projectKey=${{ secrets.SONAR_PROJECT_KEY }}" \
+            2>/dev/null || echo '{"projectStatus":{"status":"UNKNOWN"}}')
+
+          echo "$RESPONSE" > quality-gate-result.json
+
+          QG_STATUS=$(echo "$RESPONSE" | jq -r '.projectStatus.status // "UNKNOWN"')
+          echo "Quality Gate Status: $QG_STATUS"
+
+      - name: Generate quality summary
+        id: quality-summary
+        uses: ./.github/actions/generate-quality-summary
+        with:
+          results-file: quality-gate-result.json
+          project-key: ${{ secrets.SONAR_PROJECT_KEY }}
+          branch-name: ${{ github.ref_name }}
+
+      - name: Upload quality results
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-results
+          path: quality-gate-result.json
+          retention-days: 1
+
+      - name: Quality gate outcome
+        run: |
+          QG_STATUS="${{ steps.quality-summary.outputs.quality-gate-status }}"
+
+          echo "Quality Gate Status: $QG_STATUS"
+
+          if [ "$QG_STATUS" = "ERROR" ] || [ "$QG_STATUS" = "FAILED" ]; then
+            echo "::warning::Quality gate failed"
+          fi

@@ -1,0 +1,113 @@
+name: 'Generate Quality Summary'
+description: 'Parses SonarQube quality gate results and generates GitHub step summary'
+
+inputs:
+  results-file:
+    description: 'Path to quality gate results JSON'
+    required: true
+  project-key:
+    description: 'SonarQube project key'
+    required: true
+  branch-name:
+    description: 'Current branch name'
+    required: false
+    default: 'main'
+  summary-title:
+    description: 'Title for the quality summary section'
+    required: false
+    default: 'Quality Gate Results (SonarQube Cloud)'
+
+outputs:
+  quality-gate-status:
+    description: 'Quality gate status (OK/ERROR/UNKNOWN)'
+    value: ${{ steps.parse-results.outputs.quality-gate-status }}
+  bugs-count:
+    description: 'Number of bugs'
+    value: ${{ steps.parse-results.outputs.bugs-count }}
+  vulnerabilities-count:
+    description: 'Number of code vulnerabilities'
+    value: ${{ steps.parse-results.outputs.vulnerabilities-count }}
+  code-smells-count:
+    description: 'Number of code smells'
+    value: ${{ steps.parse-results.outputs.code-smells-count }}
+  coverage:
+    description: 'Code coverage percentage'
+    value: ${{ steps.parse-results.outputs.coverage }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Parse quality results
+      id: parse-results
+      shell: bash
+      run: |
+        RESULTS_FILE="${{ inputs.results-file }}"
+
+        if [ ! -f "$RESULTS_FILE" ]; then
+          echo "Results file not found: $RESULTS_FILE"
+          echo "quality-gate-status=UNKNOWN" >> $GITHUB_OUTPUT
+          echo "bugs-count=0" >> $GITHUB_OUTPUT
+          echo "vulnerabilities-count=0" >> $GITHUB_OUTPUT
+          echo "code-smells-count=0" >> $GITHUB_OUTPUT
+          echo "coverage=0" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        echo "Parsing SonarQube results from: $RESULTS_FILE"
+
+        # Extract quality gate status
+        QG_STATUS=$(jq -r '.projectStatus.status // "UNKNOWN"' "$RESULTS_FILE" 2>/dev/null || echo "UNKNOWN")
+        echo "Quality Gate Status: $QG_STATUS"
+        echo "quality-gate-status=$QG_STATUS" >> $GITHUB_OUTPUT
+
+        # Extract metric values from conditions if available
+        BUGS=$(jq -r '.projectStatus.conditions[]? | select(.metricKey == "bugs") | .actualValue // "0"' "$RESULTS_FILE" 2>/dev/null || echo "0")
+        VULNS=$(jq -r '.projectStatus.conditions[]? | select(.metricKey == "vulnerabilities") | .actualValue // "0"' "$RESULTS_FILE" 2>/dev/null || echo "0")
+        SMELLS=$(jq -r '.projectStatus.conditions[]? | select(.metricKey == "code_smells") | .actualValue // "0"' "$RESULTS_FILE" 2>/dev/null || echo "0")
+        COVERAGE=$(jq -r '.projectStatus.conditions[]? | select(.metricKey == "coverage") | .actualValue // "0"' "$RESULTS_FILE" 2>/dev/null || echo "0")
+
+        echo "bugs-count=${BUGS:-0}" >> $GITHUB_OUTPUT
+        echo "vulnerabilities-count=${VULNS:-0}" >> $GITHUB_OUTPUT
+        echo "code-smells-count=${SMELLS:-0}" >> $GITHUB_OUTPUT
+        echo "coverage=${COVERAGE:-0}" >> $GITHUB_OUTPUT
+
+    - name: Generate quality summary
+      shell: bash
+      run: |
+        QG_STATUS="${{ steps.parse-results.outputs.quality-gate-status }}"
+        PROJECT_KEY="${{ inputs.project-key }}"
+        BRANCH="${{ inputs.branch-name }}"
+
+        # Determine status display
+        if [ "$QG_STATUS" = "OK" ] || [ "$QG_STATUS" = "PASSED" ]; then
+          QG_DISPLAY="PASSED"
+        elif [ "$QG_STATUS" = "ERROR" ] || [ "$QG_STATUS" = "FAILED" ]; then
+          QG_DISPLAY="FAILED"
+        else
+          QG_DISPLAY="UNKNOWN"
+        fi
+
+        # Build dashboard URL
+        DASHBOARD_URL="https://sonarcloud.io/dashboard?id=${PROJECT_KEY}&branch=${BRANCH}"
+
+        cat >> $GITHUB_STEP_SUMMARY << EOF
+        ## ${{ inputs.summary-title }}
+
+        | Metric | Value |
+        |--------|-------|
+        | **Quality Gate** | **$QG_DISPLAY** |
+        | Project | $PROJECT_KEY |
+        | Branch | $BRANCH |
+
+        ### Analysis Details
+
+        | Metric | Count |
+        |--------|-------|
+        | Bugs | ${{ steps.parse-results.outputs.bugs-count }} |
+        | Vulnerabilities | ${{ steps.parse-results.outputs.vulnerabilities-count }} |
+        | Code Smells | ${{ steps.parse-results.outputs.code-smells-count }} |
+        | Coverage | ${{ steps.parse-results.outputs.coverage }}% |
+
+        [View Full Analysis on SonarCloud]($DASHBOARD_URL)
+
+        EOF

@@ -1,0 +1,45 @@
+name: 'Setup Java and Maven'
+description: 'Sets up JDK and Maven with caching for consistent build environment'
+
+inputs:
+  java-version:
+    description: 'Java version to use'
+    required: false
+    default: '17'
+  distribution:
+    description: 'Java distribution'
+    required: false
+    default: 'temurin'
+  working-directory:
+    description: 'Project directory for cache key generation'
+    required: false
+    default: 'test-app'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up JDK ${{ inputs.java-version }}
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ inputs.java-version }}
+        distribution: ${{ inputs.distribution }}
+        cache: 'maven'
+        cache-dependency-path: '${{ inputs.working-directory }}/pom.xml'
+
+    - name: Cache Maven target directory
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.working-directory }}/target
+        key: ${{ runner.os }}-maven-target-${{ hashFiles(format('{0}/pom.xml', inputs.working-directory)) }}-${{ hashFiles(format('{0}/src/**', inputs.working-directory)) }}
+        restore-keys: |
+          ${{ runner.os }}-maven-target-${{ hashFiles(format('{0}/pom.xml', inputs.working-directory)) }}-
+          ${{ runner.os }}-maven-target-
+
+    - name: Verify Java installation
+      shell: bash
+      run: |
+        echo "Java version:"
+        java -version
+        echo ""
+        echo "Maven version:"
+        mvn -version
