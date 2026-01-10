@@ -3,7 +3,7 @@
 # =============================================================================
 #
 # Complete CI/CD pipeline demonstrating policy-based security gating with:
-#   - Modular reusable workflows for build, security, quality, and docker
+#   - Modular reusable workflows for build, security, and quality
 #   - Real Snyk security scanning
 #   - Real SonarQube Cloud quality analysis
 #   - Gate evaluation using local Policy Management System
@@ -31,8 +31,6 @@ on:
 
 env:
   JAVA_VERSION: '17'
-  DOCKER_BUILDKIT: 1
-  POLICY_API_URL: 'http://localhost:8000'
 
 jobs:
   # ===========================================================================
@@ -54,7 +52,7 @@ jobs:
     uses: ./.github/workflows/security-scanning.yml
     with:
       java-version: '17'
-      run-container-scan: ${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+      run-container-scan: false
     secrets:
       SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
       SNYK_ORG_ID: ${{ secrets.SNYK_ORG_ID }}
@@ -75,217 +73,26 @@ jobs:
       SONAR_ORGANIZATION: ${{ secrets.SONAR_ORGANIZATION }}
 
   # ===========================================================================
-  # Policy Gate Evaluation (Local Policy Management System)
+  # Policy Gate Evaluation (Reusable Workflow)
   # ===========================================================================
   gate-evaluation:
-    name: Policy Gate Evaluation
+    name: Gate Evaluation
     needs: [security-scan, quality-analysis]
     if: always() && needs.build.result == 'success'
-    runs-on: self-hosted
-
-    outputs:
-      decision: ${{ steps.evaluate.outputs.decision }}
-      exit_code: ${{ steps.evaluate.outputs.exit_code }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download security results
-        uses: actions/download-artifact@v4
-        with:
-          name: security-results
-          path: snyk-scanning/results
-        continue-on-error: true
-
-      - name: Download quality results
-        uses: actions/download-artifact@v4
-        with:
-          name: quality-results
-          path: sonarqube-cloud-scanning/results
-        continue-on-error: true
-
-      - name: Parse scan results
-        id: parse
-        run: |
-          # Parse Snyk results
-          if [ -f "snyk-scanning/results/snyk-results.json" ]; then
-            CRITICAL=$(jq '.vulnerabilities | map(select(.severity == "critical")) | length // 0' snyk-scanning/results/snyk-results.json 2>/dev/null || echo "0")
-            HIGH=$(jq '.vulnerabilities | map(select(.severity == "high")) | length // 0' snyk-scanning/results/snyk-results.json 2>/dev/null || echo "0")
-            MEDIUM=$(jq '.vulnerabilities | map(select(.severity == "medium")) | length // 0' snyk-scanning/results/snyk-results.json 2>/dev/null || echo "0")
-            LOW=$(jq '.vulnerabilities | map(select(.severity == "low")) | length // 0' snyk-scanning/results/snyk-results.json 2>/dev/null || echo "0")
-          else
-            echo "No Snyk results found, using defaults"
-            CRITICAL=0
-            HIGH=0
-            MEDIUM=0
-            LOW=0
-          fi
-
-          echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
-          echo "high=$HIGH" >> $GITHUB_OUTPUT
-          echo "medium=$MEDIUM" >> $GITHUB_OUTPUT
-          echo "low=$LOW" >> $GITHUB_OUTPUT
-
-          # Parse SonarQube results
-          if [ -f "sonarqube-cloud-scanning/results/quality-gate-result.json" ]; then
-            QG_STATUS=$(jq -r '.quality_gate.status // "UNKNOWN"' sonarqube-cloud-scanning/results/quality-gate-result.json 2>/dev/null || echo "UNKNOWN")
-            BUGS=$(jq -r '.metrics.bugs // 0' sonarqube-cloud-scanning/results/quality-gate-result.json 2>/dev/null || echo "0")
-            CODE_SMELLS=$(jq -r '.metrics.code_smells // 0' sonarqube-cloud-scanning/results/quality-gate-result.json 2>/dev/null || echo "0")
-            COVERAGE=$(jq -r '.metrics.coverage // 0' sonarqube-cloud-scanning/results/quality-gate-result.json 2>/dev/null || echo "0")
-          else
-            echo "No SonarQube results found, using defaults"
-            QG_STATUS="UNKNOWN"
-            BUGS=0
-            CODE_SMELLS=0
-            COVERAGE=0
-          fi
-
-          echo "quality_gate_status=$QG_STATUS" >> $GITHUB_OUTPUT
-          echo "bugs=$BUGS" >> $GITHUB_OUTPUT
-          echo "code_smells=$CODE_SMELLS" >> $GITHUB_OUTPUT
-          echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
-
-          echo "Parsed results:"
-          echo "  Vulnerabilities: Critical=$CRITICAL, High=$HIGH, Medium=$MEDIUM, Low=$LOW"
-          echo "  Quality: Status=$QG_STATUS, Bugs=$BUGS, Code Smells=$CODE_SMELLS, Coverage=$COVERAGE%"
-
-      - name: Check Policy Management System health
-        run: |
-          echo "Checking Policy Management System health..."
-
-          for i in {1..10}; do
-            if curl -sf http://localhost:8000/health > /dev/null; then
-              echo "Policy Management System is healthy!"
-              exit 0
-            fi
-            echo "Attempt $i/10: Waiting for Policy Management System..."
-            sleep 2
-          done
-
-          echo "Policy Management System health check failed"
-          exit 1
-
-      - name: Evaluate gates via Policy Management System
-        id: evaluate
-        env:
-          API_KEY: ${{ secrets.POLICY_API_KEY || 'dev-pipeline-key' }}
-        run: |
-          echo "Evaluating gates via local Policy Management System..."
-
-          # Build the evaluation request
-          PAYLOAD=$(cat <<EOF
-          {
-            "repository": "${{ github.repository }}",
-            "branch": "${{ github.ref_name }}",
-            "commit_sha": "${{ github.sha }}",
-            "triggered_by": "${{ github.actor }}",
-            "pipeline_source": "github-actions",
-            "vulnerabilities": {
-              "critical": ${{ steps.parse.outputs.critical }},
-              "high": ${{ steps.parse.outputs.high }},
-              "medium": ${{ steps.parse.outputs.medium }},
-              "low": ${{ steps.parse.outputs.low }}
-            },
-            "quality_metrics": {
-              "quality_gate_status": "${{ steps.parse.outputs.quality_gate_status }}",
-              "bugs": ${{ steps.parse.outputs.bugs }},
-              "code_smells": ${{ steps.parse.outputs.code_smells }},
-              "coverage": ${{ steps.parse.outputs.coverage }}
-            }
-          }
-          EOF
-          )
-
-          echo "Request payload:"
-          echo "$PAYLOAD" | jq .
-
-          # Call the Policy Management System API
-          RESPONSE=$(curl -sf -X POST \
-            -H "Content-Type: application/json" \
-            -H "X-API-Key: $API_KEY" \
-            -d "$PAYLOAD" \
-            http://localhost:8000/api/v1/pipeline/evaluate 2>&1) || {
-              echo "API call failed"
-              echo "Response: $RESPONSE"
-              exit 1
-            }
-
-          echo "API Response:"
-          echo "$RESPONSE" | jq .
-
-          # Extract decision and exit code
-          DECISION=$(echo "$RESPONSE" | jq -r '.decision // "UNKNOWN"')
-          EXIT_CODE=$(echo "$RESPONSE" | jq -r '.exit_code // 1')
-          REASON=$(echo "$RESPONSE" | jq -r '.reason // "No reason provided"')
-
-          echo "decision=$DECISION" >> $GITHUB_OUTPUT
-          echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
-
-          echo ""
-          echo "======================================"
-          echo "Gate Evaluation Result"
-          echo "======================================"
-          echo "Decision: $DECISION"
-          echo "Exit Code: $EXIT_CODE"
-          echo "Reason: $REASON"
-          echo "======================================"
-
-          # Generate summary
-          if [ "$DECISION" = "PASS" ]; then
-            ICON="✅"
-          elif [ "$DECISION" = "PASS_WITH_EXCEPTION" ]; then
-            ICON="⚠️"
-          else
-            ICON="❌"
-          fi
-
-          cat >> $GITHUB_STEP_SUMMARY << EOF
-          ## $ICON Policy Gate Evaluation
-
-          | Metric | Value |
-          |--------|-------|
-          | Decision | **$DECISION** |
-          | Exit Code | $EXIT_CODE |
-          | Reason | $REASON |
-
-          ### Security Metrics
-          | Severity | Count |
-          |----------|-------|
-          | Critical | ${{ steps.parse.outputs.critical }} |
-          | High | ${{ steps.parse.outputs.high }} |
-          | Medium | ${{ steps.parse.outputs.medium }} |
-          | Low | ${{ steps.parse.outputs.low }} |
-
-          ### Quality Metrics
-          | Metric | Value |
-          |--------|-------|
-          | Quality Gate | ${{ steps.parse.outputs.quality_gate_status }} |
-          | Bugs | ${{ steps.parse.outputs.bugs }} |
-          | Code Smells | ${{ steps.parse.outputs.code_smells }} |
-          | Coverage | ${{ steps.parse.outputs.coverage }}% |
-          EOF
-
-          exit $EXIT_CODE
-
-  # ===========================================================================
-  # Build Docker Image (Reusable Workflow)
-  # ===========================================================================
-  build-docker:
-    name: Docker Build
-    needs: gate-evaluation
-    if: success()
-    uses: ./.github/workflows/docker-build.yml
+    uses: ./.github/workflows/gate-evaluation.yml
     with:
-      image-tag: ${{ github.sha }}
-      load-prebuilt-image: ${{ github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' }}
+      api-url: 'http://localhost:8000'
+      security-results-artifact: 'security-results'
+      quality-results-artifact: 'quality-results'
+    secrets:
+      POLICY_API_KEY: ${{ secrets.POLICY_API_KEY }}
 
   # ===========================================================================
   # Pipeline Summary
   # ===========================================================================
   summary:
     name: Pipeline Summary
-    needs: [build, security-scan, quality-analysis, gate-evaluation, build-docker]
+    needs: [build, security-scan, quality-analysis, gate-evaluation]
     if: always()
     runs-on: ubuntu-latest
 
@@ -301,7 +108,6 @@ jobs:
           | Security Scan | ${{ needs.security-scan.result }} |
           | Quality Analysis | ${{ needs.quality-analysis.result }} |
           | Gate Evaluation | ${{ needs.gate-evaluation.result }} |
-          | Docker Build | ${{ needs.build-docker.result }} |
 
           ### Architecture
 
@@ -309,8 +115,13 @@ jobs:
           - `build-application.yml` - Maven build & test
           - `security-scanning.yml` - Snyk vulnerability scanning
           - `quality-analysis.yml` - SonarQube Cloud analysis
-          - `docker-build.yml` - Docker image creation
+          - `gate-evaluation.yml` - Policy gate evaluation
 
-          Gate evaluation is performed against the local Policy Management System
-          running on the self-hosted runner at `http://localhost:8000`.
+          Gate evaluation uses these composite actions:
+          - `parse-scan-results` - Parse Snyk and SonarQube results
+          - `evaluate-policy-gates` - Call Policy Management System API
+          - `generate-gate-summary` - Generate GitHub step summary
+
+          Gate evaluation runs on self-hosted runner to access
+          local Policy Management System at `http://localhost:8000`.
           EOF

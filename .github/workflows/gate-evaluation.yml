@@ -1,0 +1,99 @@
+name: 'Policy Gate Evaluation'
+
+on:
+  workflow_call:
+    inputs:
+      api-url:
+        description: 'Policy Management System API URL'
+        required: false
+        type: string
+        default: 'http://localhost:8000'
+      security-results-artifact:
+        description: 'Name of the security results artifact'
+        required: false
+        type: string
+        default: 'security-results'
+      quality-results-artifact:
+        description: 'Name of the quality results artifact'
+        required: false
+        type: string
+        default: 'quality-results'
+    secrets:
+      POLICY_API_KEY:
+        required: false
+    outputs:
+      decision:
+        description: 'Gate decision (PASS, PASS_WITH_EXCEPTION, BLOCKED)'
+        value: ${{ jobs.evaluate.outputs.decision }}
+      exit-code:
+        description: 'Exit code (0=PASS, 1=WARNING, 2=BLOCKED)'
+        value: ${{ jobs.evaluate.outputs.exit-code }}
+
+jobs:
+  evaluate:
+    name: Evaluate Policy Gates
+    runs-on: self-hosted
+
+    outputs:
+      decision: ${{ steps.evaluate-gates.outputs.decision }}
+      exit-code: ${{ steps.evaluate-gates.outputs.exit-code }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download security results
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.security-results-artifact }}
+          path: snyk-scanning/results
+        continue-on-error: true
+
+      - name: Download quality results
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.quality-results-artifact }}
+          path: sonarqube-cloud-scanning/results
+        continue-on-error: true
+
+      - name: Parse scan results
+        id: parse-results
+        uses: ./.github/actions/parse-scan-results
+        with:
+          security-results-path: snyk-scanning/results/snyk-results.json
+          quality-results-path: sonarqube-cloud-scanning/results/quality-gate-result.json
+
+      - name: Evaluate policy gates
+        id: evaluate-gates
+        uses: ./.github/actions/evaluate-policy-gates
+        with:
+          api-url: ${{ inputs.api-url }}
+          api-key: ${{ secrets.POLICY_API_KEY || 'dev-pipeline-key' }}
+          repository: ${{ github.repository }}
+          branch: ${{ github.ref_name }}
+          commit-sha: ${{ github.sha }}
+          triggered-by: ${{ github.actor }}
+          critical: ${{ steps.parse-results.outputs.critical }}
+          high: ${{ steps.parse-results.outputs.high }}
+          medium: ${{ steps.parse-results.outputs.medium }}
+          low: ${{ steps.parse-results.outputs.low }}
+          quality-gate-status: ${{ steps.parse-results.outputs.quality-gate-status }}
+          bugs: ${{ steps.parse-results.outputs.bugs }}
+          code-smells: ${{ steps.parse-results.outputs.code-smells }}
+          coverage: ${{ steps.parse-results.outputs.coverage }}
+
+      - name: Generate gate summary
+        if: always()
+        uses: ./.github/actions/generate-gate-summary
+        with:
+          decision: ${{ steps.evaluate-gates.outputs.decision }}
+          exit-code: ${{ steps.evaluate-gates.outputs.exit-code }}
+          reason: ${{ steps.evaluate-gates.outputs.reason }}
+          critical: ${{ steps.parse-results.outputs.critical }}
+          high: ${{ steps.parse-results.outputs.high }}
+          medium: ${{ steps.parse-results.outputs.medium }}
+          low: ${{ steps.parse-results.outputs.low }}
+          quality-gate-status: ${{ steps.parse-results.outputs.quality-gate-status }}
+          bugs: ${{ steps.parse-results.outputs.bugs }}
+          code-smells: ${{ steps.parse-results.outputs.code-smells }}
+          coverage: ${{ steps.parse-results.outputs.coverage }}

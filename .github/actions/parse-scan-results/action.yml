@@ -1,0 +1,92 @@
+name: 'Parse Scan Results'
+description: 'Parses Snyk security and SonarQube quality scan results from artifacts'
+
+inputs:
+  security-results-path:
+    description: 'Path to the Snyk results JSON file'
+    required: false
+    default: 'snyk-scanning/results/snyk-results.json'
+  quality-results-path:
+    description: 'Path to the SonarQube quality gate results JSON file'
+    required: false
+    default: 'sonarqube-cloud-scanning/results/quality-gate-result.json'
+
+outputs:
+  critical:
+    description: 'Number of critical vulnerabilities'
+    value: ${{ steps.parse.outputs.critical }}
+  high:
+    description: 'Number of high vulnerabilities'
+    value: ${{ steps.parse.outputs.high }}
+  medium:
+    description: 'Number of medium vulnerabilities'
+    value: ${{ steps.parse.outputs.medium }}
+  low:
+    description: 'Number of low vulnerabilities'
+    value: ${{ steps.parse.outputs.low }}
+  quality-gate-status:
+    description: 'SonarQube quality gate status'
+    value: ${{ steps.parse.outputs.quality_gate_status }}
+  bugs:
+    description: 'Number of bugs from SonarQube'
+    value: ${{ steps.parse.outputs.bugs }}
+  code-smells:
+    description: 'Number of code smells from SonarQube'
+    value: ${{ steps.parse.outputs.code_smells }}
+  coverage:
+    description: 'Test coverage percentage'
+    value: ${{ steps.parse.outputs.coverage }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Parse scan results
+      id: parse
+      shell: bash
+      run: |
+        echo "Parsing security and quality scan results..."
+
+        # Parse Snyk results
+        if [ -f "${{ inputs.security-results-path }}" ]; then
+          echo "Found Snyk results at ${{ inputs.security-results-path }}"
+          CRITICAL=$(jq '.vulnerabilities | map(select(.severity == "critical")) | length // 0' "${{ inputs.security-results-path }}" 2>/dev/null || echo "0")
+          HIGH=$(jq '.vulnerabilities | map(select(.severity == "high")) | length // 0' "${{ inputs.security-results-path }}" 2>/dev/null || echo "0")
+          MEDIUM=$(jq '.vulnerabilities | map(select(.severity == "medium")) | length // 0' "${{ inputs.security-results-path }}" 2>/dev/null || echo "0")
+          LOW=$(jq '.vulnerabilities | map(select(.severity == "low")) | length // 0' "${{ inputs.security-results-path }}" 2>/dev/null || echo "0")
+        else
+          echo "No Snyk results found, using defaults"
+          CRITICAL=0
+          HIGH=0
+          MEDIUM=0
+          LOW=0
+        fi
+
+        echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
+        echo "high=$HIGH" >> $GITHUB_OUTPUT
+        echo "medium=$MEDIUM" >> $GITHUB_OUTPUT
+        echo "low=$LOW" >> $GITHUB_OUTPUT
+
+        # Parse SonarQube results
+        if [ -f "${{ inputs.quality-results-path }}" ]; then
+          echo "Found SonarQube results at ${{ inputs.quality-results-path }}"
+          QG_STATUS=$(jq -r '.quality_gate.status // "UNKNOWN"' "${{ inputs.quality-results-path }}" 2>/dev/null || echo "UNKNOWN")
+          BUGS=$(jq -r '.metrics.bugs // 0' "${{ inputs.quality-results-path }}" 2>/dev/null || echo "0")
+          CODE_SMELLS=$(jq -r '.metrics.code_smells // 0' "${{ inputs.quality-results-path }}" 2>/dev/null || echo "0")
+          COVERAGE=$(jq -r '.metrics.coverage // 0' "${{ inputs.quality-results-path }}" 2>/dev/null || echo "0")
+        else
+          echo "No SonarQube results found, using defaults"
+          QG_STATUS="UNKNOWN"
+          BUGS=0
+          CODE_SMELLS=0
+          COVERAGE=0
+        fi
+
+        echo "quality_gate_status=$QG_STATUS" >> $GITHUB_OUTPUT
+        echo "bugs=$BUGS" >> $GITHUB_OUTPUT
+        echo "code_smells=$CODE_SMELLS" >> $GITHUB_OUTPUT
+        echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+
+        echo ""
+        echo "Parsed Results Summary:"
+        echo "  Security: Critical=$CRITICAL, High=$HIGH, Medium=$MEDIUM, Low=$LOW"
+        echo "  Quality: Status=$QG_STATUS, Bugs=$BUGS, Code Smells=$CODE_SMELLS, Coverage=$COVERAGE%"

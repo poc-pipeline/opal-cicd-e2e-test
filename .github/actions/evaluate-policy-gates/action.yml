@@ -1,0 +1,154 @@
+name: 'Evaluate Policy Gates'
+description: 'Evaluates security and quality gates via the Policy Management System API'
+
+inputs:
+  api-url:
+    description: 'Policy Management System API URL'
+    required: false
+    default: 'http://localhost:8000'
+  api-key:
+    description: 'API key for authentication'
+    required: false
+    default: 'dev-pipeline-key'
+  repository:
+    description: 'Repository name (owner/repo)'
+    required: true
+  branch:
+    description: 'Branch name'
+    required: true
+  commit-sha:
+    description: 'Commit SHA'
+    required: true
+  triggered-by:
+    description: 'User who triggered the pipeline'
+    required: true
+  critical:
+    description: 'Number of critical vulnerabilities'
+    required: true
+  high:
+    description: 'Number of high vulnerabilities'
+    required: true
+  medium:
+    description: 'Number of medium vulnerabilities'
+    required: true
+  low:
+    description: 'Number of low vulnerabilities'
+    required: true
+  quality-gate-status:
+    description: 'SonarQube quality gate status'
+    required: false
+    default: 'UNKNOWN'
+  bugs:
+    description: 'Number of bugs'
+    required: false
+    default: '0'
+  code-smells:
+    description: 'Number of code smells'
+    required: false
+    default: '0'
+  coverage:
+    description: 'Test coverage percentage'
+    required: false
+    default: '0'
+
+outputs:
+  decision:
+    description: 'Gate decision (PASS, PASS_WITH_EXCEPTION, BLOCKED)'
+    value: ${{ steps.evaluate.outputs.decision }}
+  exit-code:
+    description: 'Exit code (0=PASS, 1=WARNING, 2=BLOCKED)'
+    value: ${{ steps.evaluate.outputs.exit_code }}
+  reason:
+    description: 'Reason for the decision'
+    value: ${{ steps.evaluate.outputs.reason }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Check Policy Management System health
+      shell: bash
+      run: |
+        echo "Checking Policy Management System health at ${{ inputs.api-url }}..."
+
+        for i in {1..10}; do
+          if curl -sf "${{ inputs.api-url }}/health" > /dev/null 2>&1; then
+            echo "Policy Management System is healthy!"
+            exit 0
+          fi
+          echo "Attempt $i/10: Waiting for Policy Management System..."
+          sleep 2
+        done
+
+        echo "Policy Management System health check failed!"
+        exit 1
+
+    - name: Evaluate gates via Policy Management System
+      id: evaluate
+      shell: bash
+      run: |
+        echo "Evaluating gates via Policy Management System..."
+
+        # Build the evaluation request
+        PAYLOAD=$(cat <<EOF
+        {
+          "repository": "${{ inputs.repository }}",
+          "branch": "${{ inputs.branch }}",
+          "commit_sha": "${{ inputs.commit-sha }}",
+          "triggered_by": "${{ inputs.triggered-by }}",
+          "pipeline_source": "github-actions",
+          "vulnerabilities": {
+            "critical": ${{ inputs.critical }},
+            "high": ${{ inputs.high }},
+            "medium": ${{ inputs.medium }},
+            "low": ${{ inputs.low }}
+          },
+          "quality_metrics": {
+            "quality_gate_status": "${{ inputs.quality-gate-status }}",
+            "bugs": ${{ inputs.bugs }},
+            "code_smells": ${{ inputs.code-smells }},
+            "coverage": ${{ inputs.coverage }}
+          }
+        }
+        EOF
+        )
+
+        echo "Request payload:"
+        echo "$PAYLOAD" | jq .
+
+        # Call the Policy Management System API
+        RESPONSE=$(curl -sf -X POST \
+          -H "Content-Type: application/json" \
+          -H "X-API-Key: ${{ inputs.api-key }}" \
+          -d "$PAYLOAD" \
+          "${{ inputs.api-url }}/api/v1/pipeline/evaluate" 2>&1) || {
+            echo "API call failed"
+            echo "Response: $RESPONSE"
+            echo "decision=ERROR" >> $GITHUB_OUTPUT
+            echo "exit_code=1" >> $GITHUB_OUTPUT
+            echo "reason=API call failed" >> $GITHUB_OUTPUT
+            exit 1
+          }
+
+        echo ""
+        echo "API Response:"
+        echo "$RESPONSE" | jq .
+
+        # Extract decision and exit code
+        DECISION=$(echo "$RESPONSE" | jq -r '.decision // "UNKNOWN"')
+        EXIT_CODE=$(echo "$RESPONSE" | jq -r '.exit_code // 1')
+        REASON=$(echo "$RESPONSE" | jq -r '.reason // "No reason provided"')
+
+        echo "decision=$DECISION" >> $GITHUB_OUTPUT
+        echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
+        echo "reason=$REASON" >> $GITHUB_OUTPUT
+
+        echo ""
+        echo "======================================"
+        echo "Gate Evaluation Result"
+        echo "======================================"
+        echo "Decision: $DECISION"
+        echo "Exit Code: $EXIT_CODE"
+        echo "Reason: $REASON"
+        echo "======================================"
+
+        exit $EXIT_CODE

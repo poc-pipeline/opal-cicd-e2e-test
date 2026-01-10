@@ -1,0 +1,136 @@
+name: 'Generate Gate Summary'
+description: 'Generates a GitHub step summary for gate evaluation results'
+
+inputs:
+  decision:
+    description: 'Gate decision (PASS, PASS_WITH_EXCEPTION, BLOCKED)'
+    required: true
+  exit-code:
+    description: 'Exit code from gate evaluation'
+    required: true
+  reason:
+    description: 'Reason for the decision'
+    required: true
+  critical:
+    description: 'Number of critical vulnerabilities'
+    required: true
+  high:
+    description: 'Number of high vulnerabilities'
+    required: true
+  medium:
+    description: 'Number of medium vulnerabilities'
+    required: true
+  low:
+    description: 'Number of low vulnerabilities'
+    required: true
+  quality-gate-status:
+    description: 'SonarQube quality gate status'
+    required: false
+    default: 'UNKNOWN'
+  bugs:
+    description: 'Number of bugs'
+    required: false
+    default: '0'
+  code-smells:
+    description: 'Number of code smells'
+    required: false
+    default: '0'
+  coverage:
+    description: 'Test coverage percentage'
+    required: false
+    default: '0'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Generate summary
+      shell: bash
+      run: |
+        DECISION="${{ inputs.decision }}"
+        EXIT_CODE="${{ inputs.exit-code }}"
+        REASON="${{ inputs.reason }}"
+
+        # Determine icon based on decision
+        if [ "$DECISION" = "PASS" ]; then
+          ICON="✅"
+          STATUS_COLOR="green"
+        elif [ "$DECISION" = "PASS_WITH_EXCEPTION" ]; then
+          ICON="⚠️"
+          STATUS_COLOR="yellow"
+        else
+          ICON="❌"
+          STATUS_COLOR="red"
+        fi
+
+        # Generate the summary
+        cat >> $GITHUB_STEP_SUMMARY << EOF
+        ## $ICON Policy Gate Evaluation
+
+        | Metric | Value |
+        |--------|-------|
+        | **Decision** | **$DECISION** |
+        | Exit Code | $EXIT_CODE |
+        | Reason | $REASON |
+
+        ### 🔒 Security Metrics (Snyk)
+
+        | Severity | Count | Status |
+        |----------|-------|--------|
+        EOF
+
+        # Add security metrics with status indicators
+        CRITICAL="${{ inputs.critical }}"
+        HIGH="${{ inputs.high }}"
+        MEDIUM="${{ inputs.medium }}"
+        LOW="${{ inputs.low }}"
+
+        if [ "$CRITICAL" -gt 0 ]; then
+          echo "| 🔴 Critical | **$CRITICAL** | ❌ Blocking |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| 🔴 Critical | $CRITICAL | ✅ None |" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [ "$HIGH" -gt 0 ]; then
+          echo "| 🟠 High | **$HIGH** | ⚠️ Review Required |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| 🟠 High | $HIGH | ✅ None |" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [ "$MEDIUM" -gt 0 ]; then
+          echo "| 🟡 Medium | $MEDIUM | ℹ️ Informational |" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "| 🟡 Medium | $MEDIUM | ✅ None |" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        echo "| ⚪ Low | $LOW | ✅ OK |" >> $GITHUB_STEP_SUMMARY
+
+        # Add quality metrics
+        QG_STATUS="${{ inputs.quality-gate-status }}"
+        BUGS="${{ inputs.bugs }}"
+        CODE_SMELLS="${{ inputs.code-smells }}"
+        COVERAGE="${{ inputs.coverage }}"
+
+        if [ "$QG_STATUS" = "PASSED" ] || [ "$QG_STATUS" = "OK" ]; then
+          QG_ICON="✅"
+        elif [ "$QG_STATUS" = "FAILED" ] || [ "$QG_STATUS" = "ERROR" ]; then
+          QG_ICON="❌"
+        else
+          QG_ICON="❓"
+        fi
+
+        cat >> $GITHUB_STEP_SUMMARY << EOF
+
+        ### 📊 Quality Metrics (SonarQube)
+
+        | Metric | Value |
+        |--------|-------|
+        | Quality Gate | $QG_ICON **$QG_STATUS** |
+        | Bugs | $BUGS |
+        | Code Smells | $CODE_SMELLS |
+        | Coverage | ${COVERAGE}% |
+
+        ---
+        *Evaluated by Policy Management System*
+        EOF
+
+        echo "Summary generated successfully"
