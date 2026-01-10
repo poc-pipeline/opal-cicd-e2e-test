@@ -93,8 +93,8 @@ runs:
         {
           "repository": "${{ inputs.repository }}",
           "branch": "${{ inputs.branch }}",
-          "commit_sha": "${{ inputs.commit-sha }}",
-          "triggered_by": "${{ inputs.triggered-by }}",
+          "commit": "${{ inputs.commit-sha }}",
+          "user": "${{ inputs.triggered-by }}",
           "pipeline_source": "github-actions",
           "vulnerabilities": {
             "critical": ${{ inputs.critical }},
