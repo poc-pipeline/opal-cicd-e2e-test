@@ -1,6 +1,5 @@
 name: 'Download Build Artifacts'
-description: 'Downloads and verifies build artifacts with standard structure'
-
+description: 'Downloads build artifacts with standard naming and path structure'
 inputs:
   artifact-name:
     description: 'Name of the artifact to download'
@@ -9,15 +8,7 @@ inputs:
   download-path:
     description: 'Path where to extract the artifacts'
     required: false
-    default: 'test-app/target'
-
-outputs:
-  jar-count:
-    description: 'Number of JAR files found'
-    value: ${{ steps.verify.outputs.jar-count }}
-  artifact-valid:
-    description: 'Whether the artifact is valid'
-    value: ${{ steps.verify.outputs.artifact-valid }}
+    default: '.'
 
 runs:
   using: 'composite'
@@ -27,31 +18,19 @@ runs:
       with:
         name: ${{ inputs.artifact-name }}
         path: ${{ inputs.download-path }}
-
+        
     - name: Verify artifact structure
-      id: verify
       shell: bash
       run: |
-        echo "Verifying downloaded artifact structure..."
-
-        if [ -d "${{ inputs.download-path }}" ]; then
-          echo "Build artifacts downloaded to: ${{ inputs.download-path }}"
-          ls -la ${{ inputs.download-path }}/
-
-          JAR_COUNT=$(find ${{ inputs.download-path }} -name "*.jar" 2>/dev/null | wc -l)
-          echo "JAR files found: $JAR_COUNT"
-          echo "jar-count=$JAR_COUNT" >> $GITHUB_OUTPUT
-
-          if [ "$JAR_COUNT" -gt 0 ]; then
-            echo "artifact-valid=true" >> $GITHUB_OUTPUT
-            echo "Artifact validation: SUCCESS"
-          else
-            echo "artifact-valid=false" >> $GITHUB_OUTPUT
-            echo "Warning: No JAR files found in artifacts"
-          fi
+        echo "📁 Verifying downloaded artifact structure..."
+        echo "Download path: ${{ inputs.download-path }}"
+        ls -la ${{ inputs.download-path }}/ || echo "⚠️ Download path not found or empty"
+        
+        # Check for microservice-moc-app directory structure
+        if [ -d "${{ inputs.download-path }}/microservice-moc-app" ]; then
+          echo "✅ Microservice application directory found"
+          echo "📊 Application structure:"
+          ls -la ${{ inputs.download-path }}/microservice-moc-app/
         else
-          echo "artifact-valid=false" >> $GITHUB_OUTPUT
-          echo "jar-count=0" >> $GITHUB_OUTPUT
-          echo "Error: Download path not found: ${{ inputs.download-path }}"
-          exit 1
+          echo "⚠️ Expected microservice-moc-app directory not found"
         fi

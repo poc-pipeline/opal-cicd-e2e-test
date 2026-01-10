@@ -1,0 +1,145 @@
+
+B4.5.1
+1. Expose or consumes an API (Application Programming Interface) with Citi, does it support the federated identity standards of OAUTH 2 (Open Authentication) & OIDC (OpenID Connect) for integrating and exchanging authentication and authorization data with Citi systems?
+Sonar Response:
+The comment from December 17, 2025 asks Sonar to elaborate on JWT authentication, JWE/JWS length for components and how the Sonar token is generated. Here are details that we can share.
+I put together a summary of what we do, and the details after should there be more questions.
+Summary (for the SASA team’s documentation)
+● Transport: HTTPS/TLS (min TLS 1.2); no customer‑enforced mTLS on public endpoints.
+● API auth: Bearer tokens only (Authorization: Bearer &lt;token&gt;), using Personal Access Tokens and Scoped Organization Tokens generated via the SonarQube Cloud UI.
+● Token type: Opaque, high‑entropy secrets, not JWT/JWE/JWS; all authorization decisions are made server‑side based on token lookup and scoped permissions.
+● JWT/JWE/JWS: Not used for API authentication; only internal to SSO/OIDC flows (Auth0 + customer IdP) and governed by those identity providers’ crypto settings.
+● Lifecycle: User/admin revocation at any time; user deletion removes all their PATs; For security hygiene, SOTs with no expiry and have been inactive for 60 days are automatically removed.
+Details are below
+API authentication model
+Channel protection
+● All public Web API endpoints are exposed only over HTTPS/TLS (min TLS 1.2); there is no customer‑enforced mutual TLS (mTLS) option on public endpoints.
+Authentication mechanism
+● APIs use a token‑based bearer scheme, not OAuth2/OIDC access tokens and not client certificates.
+● Clients authenticate by including a SonarQube Cloud token in the HTTP header: Authorization: Bearer &lt;token&gt;.
+Token types
+● Personal Access Tokens (PATs) – per‑user tokens used to run analyses and invoke
+Web APIs with the same permissions as the issuing user, without exposing the user’s
+interactive credentials.
+● Scoped Organization Tokens (SOTs) – non‑user‑specific tokens (prefix sqco_)
+attached to an organization and managed by org admins, scoped to:
+○ A defined set of projects (or all current and future projects in the org), and
+○ A restricted permission set (currently Execute Analysis).
+These token types are recommended for Enterprise customers’ CI/CD systems and integrations.
+JWT / JWE / JWS usage
+● SonarQube Cloud Web APIs do not use JWT, JWE, or JWS for client
+authentication. API tokens are opaque, high‑entropy bearer secrets generated and
+stored by SonarQube Cloud; they contain no client‑visible claims and are not
+self‑describing.
+● As a result, JWE and JWS component lengths are not applicable to the SonarQube
+Cloud API authentication mechanism.
+Where JWTs do appear
+● JWTs/ID tokens may be used internally in the SSO and DevOps‑platform login flow,
+which is handled via Auth0 and the customer’s IdP or DevOps platform (e.g., GitHub,
+Azure DevOps).
+● In that context, algorithms and key sizes follow IdP/Auth0 configuration, not a
+SonarQube Cloud–specific API token format, and these tokens are not exposed as API
+bearer tokens.
+Sonar tokens – generation, use, and lifecycle
+Personal Access Tokens (PATs)
+Purpose and scope
+● Each user can generate PATs to run analyses or call Web APIs on their behalf without
+revealing their password.
+Generation
+● PATs are generated only via the UI: My Account → Security
+(https://sonarcloud.io/account/security).
+● When the user clicks Generate, SonarQube Cloud creates a long, random token and displays it exactly once; if the dialog is dismissed, the raw token value cannot be retrieved again and can only be revoked.
+Usage
+● For analysis: set sonar.token to the PAT value (the older sonar.password property is deprecated).
+● For Web API calls: supply Authorization: Bearer &lt;token&gt; over HTTPS.
+Lifecycle and revocation
+● Users can revoke PATs at any time via the UI; when a user account is deleted, all of their PATs are deleted as well.
+● For security hygiene, tokens inactive for 60 days are automatically removed by the platform.
+Scoped Organization Tokens (SOTs)
+Purpose and least‑privilege design
+● SOTs are recommended for Enterprise CI/CD pipelines as non‑user‑specific, least‑privilege credentials scoped to an organization.
+● They are identified with the sqco_ prefix and can:
+○ Be restricted to a selected list of projects or all current and future projects in the org, and
+○ Be limited to specific permissions (currently Execute Analysis, with additional permissions planned).
+Generation and management
+● Only organization admins can create and manage SOTs under Administration → Scoped Organization Tokens.
+● The admin defines name, description, scope (projects + permissions), and expiration, then selects Generate token. The raw token is displayed once and must be copied immediately.
+● Revoking a SOT in the UI immediately invalidates and deletes it.
+Lifecycle controls
+● SOTs can have a defined expiry or “no expiration”; tokens with no expiry that have been inactive for 60+ days are automatically removed as part of the same housekeeping policy that applies to PATs.
+2. Support Mutual TLS(transport layer security) server authentication as a means to authentication the communication channel between Citi and your systems?
+Sonar Response:
+The comment from 17 December 2025 asks us to indicate if the endpoint has other protections besides the use of TLS.
+Below is additional information.
+Summary:
+Beyond HTTPS/TLS, SonarQube Cloud’s public endpoints are:
+● Hosted inside a dedicated AWS VPC with private networks, firewalls, and tightly‑scoped security groups.
+● Fronted by AWS WAF (and AWS edge protections) to filter malicious or abusive traffic before it reaches the application.
+● Protected by strict authentication, tenant scoping, and rate limiting, so that only requests with valid tokens/sessions can access tenant data, and even then only within that tenant’s authorization boundaries.
+Details:
+SonarQube Cloud’s public endpoints do have additional protections beyond TLS; they sit behind layered network and application controls.
+Network-layer protections
+● Virtual Private Cloud (VPC) and private networks SonarQube Cloud runs inside its own AWS VPC; workloads are placed in private networks behind firewalls, not directly on the public Internet.
+● Firewalls and AWS security groups Inbound access to the SaaS environment is filtered by firewalls and AWS security groups that default‑deny traffic and only allow explicitly authorized connections (primarily HTTPS/443 via load balancers). Security groups are also used between tiers (Application Load Balancer, ECS, Lambda, database) to constrain east‑west traffic.
+● DDoS protections at the cloud edge Because endpoints are hosted on AWS, they benefit from AWS‑provided DDoS protections (e.g., Shield Standard) at the network edge, which limit volumetric and protocol‑level attacks before they reach the VPC.
+Edge and application-layer protections
+● AWS Web Application Firewall (WAF) Public web/API traffic is inspected by AWS WAF, which sits in front of the application (at ALB and, for some surfaces, at the CDN/CloudFront edge) WAF rules are used to block common web exploits and abusive patterns, and are actively used in operations (for example, blocking malicious IPs causing anomalous 4xx/5xx rates).
+● Rate limiting on public APIs The public Web API is explicitly documented and operated with bearer‑token authentication and rate limiting to reduce the impact of automated abuse and protect backend services.
+● Strict authentication and tenant scoping All API calls are authenticated (bearer tokens) and scoped to a specific enterprise/organization; there are no APIs that support cross‑enterprise data access. UI access uses SAML SSO or DevOps‑platform OAuth; within the service, role‑based access control restricts what an authenticated user can see/do at enterprise, organization, and project levels.
+● “Only connection with valid session tokens?” Practically, yes:
+○ API endpoints only return tenant data when a valid bearer token is presented; invalid/expired/revoked tokens are rejected by the API layer and cannot be used to traverse tenant boundaries.
+○ UI/SSO flows require a valid SSO session from the configured IdP; de‑provisioning via SCIM/SSO revokes access and associated sessions/tokens for that user in SonarQube Cloud.
+● Optional IP-based restrictions (Enterprise features) For some Enterprise scenarios, customers can further constrain ingress using IP allow‑lists, in addition to the default VPC + firewall posture, as documented in the advanced administration/IP allow‑lists guidance.
+C3.2.1
+1. Is there a minimum network bandwidth control mechanism in place that can detect deliberate misuse of resources(i.e., network via DoS/DDoS) by other tenants sharing the same infrastructure as the Citi hosted solution? List such controls and devices used such as minimum network bandwidth control settings.
+Sonar Response:
+In the comment form 17 December 2025 in Column T, it states that there is not adequate response to the main question (above), so we have detailed more below.
+So, this is built into the High Availability (HA) model we use in AWS.
+The HA model employs a multi-layered defense strategy to prevent "noisy neighbor" scenarios or deliberate network misuse (like DDoS) by other tenants sharing the same physical infrastructure. These mechanisms are designed to ensure that one tenant's resource consumption—whether accidental or malicious—does not degrade the high availability of other hosted solutions.
+The most fundamental control for this is the AWS Nitro System, which offloads networking, storage, and security functions to dedicated hardware (Nitro Cards).
+● Physical Resource Partitioning: Nitro cards use hardware-level virtualization to ensure that CPU and memory for network processing are physically isolated from the customer’s instance.
+● Micro-burst Throttling: The Nitro Card for VPC enforces strict bandwidth limits at the hardware level. If a neighbor tries to flood the network, the hardware drops those packets before they ever reach the shared backplane, preventing impact on other tenants.
+Additionally, AWS enforces specific "Quotas" and "Limits" that act as built-in control settings for network traffic. I put a table together of some of the major ones below:
+Control Mechanism
+Function
+Purpose
+Baseline vs. Burst Bandwidth
+Instances are assigned a "Baseline" speed (e.g., 10 Gbps) and a "Burstable" ceiling.
+Prevents any single tenant from permanently saturating shared network links.
+PPS (Packets Per Second) Limits
+Hard limits on the number of individual packets an instance can send/receive.
+Specifically targets DoS attacks that use small packets to overwhelm network stacks.
+Active Flow Limits
+Limits on the number of concurrent TCP/UDP connections.
+Protects against state-exhaustion attacks that try to fill up connection tables.
+Beyond hardware limits, AWS uses managed services to detect and scrub malicious traffic:
+● AWS Shield Standard: Automatically included for all customers. It provides deterministic packet filtering and priority-based traffic shaping at the AWS border to mitigate Layer 3 and 4 attacks (like SYN or UDP floods) before they reach the internal data center network.
+● AWS Shield Advanced: Provides customized detection based on your application’s specific traffic patterns. It can detect and mitigate attacks that are smaller but still disruptive to your specific architecture.
+● AWS WAF (Web Application Firewall): Includes Rate-based Rules. You can set a "minimum network bandwidth" proxy by limiting the number of requests per 5-minute period from any single IP address (e.g., block any IP exceeding 100 requests/5 min).
+Overall, the solution is extremely robust, and the risk associated with DOS/DDOS is considerably mitigated and quite low.
+D10.1.2
+1. Is the disposal method compliant with Citi policy?
+2. Does the disposal method capture evidence of this deletion?
+Sonar Response:
+I combined the responses here, since they are so directly related.
+The standard that is utilized within AWS for media sanitization and data disposal is based on NIST SP 800-88 (not -63 as mentioned in Column N in blue).
+Sonar verifies through our review of the AWS SOC 2 Type II reports, and the review of their Data Center Controls that these practices are still in place, and any relevant findings from their independent assessor within the evidence testing.
+Does the disposal method capture evidence of the deletion? Yes. This is a combination of AWS EventBridge and AWS CloudTrail logs.
+In AWS, the term "disposal" typically refers to the deletion of resources (like EBS volumes or RDS instances) or data objects (like S3 files). Whether a log appears in Amazon EventBridge depends on the specific service and how you have configured your account.
+EventBridge does not store "logs" in the traditional sense; instead, it receives Events. These events can be captured, filtered, and routed to targets like CloudWatch Logs for long-term storage.
+The logs arrive in EventBridge through two primary paths:
+● Native Service Events: Some services automatically emit events to EventBridge when a resource is deleted (e.g., EBS volume deletion).
+● AWS CloudTrail Integration: For services that don't emit native "delete" events, you can capture the API call (e.g., DeleteObject in S3) via CloudTrail and have CloudTrail send that event to EventBridge.
+Service
+Action
+Event Source
+Is it Automatic?
+Amazon EBS
+Deleting a volume aws.ec2 Yes. Native deleteVolume event.
+Amazon S3
+Deleting an object aws.s3
+No. Requires CloudTrail "Data Events" enabled.
+Amazon RDS
+Deleting an instance aws.rds Yes. Native DeleteDBInstance event.
+AWS KMS
+Deleting a key aws.kms Yes. Native ScheduleKeyDeletion event.

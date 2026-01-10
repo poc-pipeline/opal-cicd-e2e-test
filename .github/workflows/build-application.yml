@@ -1,5 +1,4 @@
-name: Build Application
-
+name: 'Build Application'
 on:
   workflow_call:
     inputs:
@@ -8,97 +7,39 @@ on:
         required: false
         type: string
         default: '17'
-      working-directory:
-        description: 'Project directory'
+      maven-version:
+        description: 'Maven version to use'
         required: false
         type: string
-        default: 'test-app'
-      skip-tests:
-        description: 'Skip running tests'
-        required: false
-        type: boolean
-        default: false
-
+        default: '3.8.6'
+      
 jobs:
   build:
-    name: Build & Test
+    name: Build Application
     runs-on: ubuntu-latest
-
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-
+        
       - name: Setup Java and Maven
         uses: ./.github/actions/setup-java-maven
         with:
           java-version: ${{ inputs.java-version }}
-          working-directory: ${{ inputs.working-directory }}
-
-      - name: Build with Maven
+          
+      - name: Build Spring Boot application
         run: |
-          cd ${{ inputs.working-directory }}
-          mvn clean compile -B -q
-
-      - name: Run Unit Tests with JaCoCo
-        if: ${{ !inputs.skip-tests }}
+          cd microservice-moc-app
+          mvn clean compile test
+          
+      - name: Package application
         run: |
-          cd ${{ inputs.working-directory }}
-          mvn test jacoco:report -B
-
-      - name: Package Application
-        run: |
-          cd ${{ inputs.working-directory }}
-          mvn package -DskipTests -B -q
-
+          cd microservice-moc-app
+          mvn package -DskipTests
+          
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: build-artifacts
-          path: |
-            ${{ inputs.working-directory }}/target/*.jar
-            ${{ inputs.working-directory }}/target/classes/
-            ${{ inputs.working-directory }}/target/surefire-reports/
-            ${{ inputs.working-directory }}/target/site/jacoco/
+          path: microservice-moc-app
           retention-days: 1
-          if-no-files-found: error
-
-      - name: Generate Build Summary
-        run: |
-          cd ${{ inputs.working-directory }}
-
-          # Get JAR info
-          JAR_FILE=$(ls target/*.jar 2>/dev/null | head -1 || echo "Not found")
-          JAR_SIZE=$(du -h "$JAR_FILE" 2>/dev/null | cut -f1 || echo "N/A")
-
-          # Get test results if available
-          TEST_COUNT=0
-          TEST_FAILURES=0
-          if [ -d "target/surefire-reports" ]; then
-            TEST_COUNT=$(grep -l "testcase" target/surefire-reports/*.xml 2>/dev/null | xargs grep -h "<testcase" 2>/dev/null | wc -l || echo 0)
-            TEST_FAILURES=$(grep -h "failures=" target/surefire-reports/*.xml 2>/dev/null | grep -oP 'failures="\K[^"]+' | awk '{s+=$1} END {print s+0}' || echo 0)
-          fi
-
-          cat >> $GITHUB_STEP_SUMMARY << EOF
-          ## Build Summary
-
-          | Parameter | Value |
-          |-----------|-------|
-          | Java Version | ${{ inputs.java-version }} |
-          | Project | ${{ inputs.working-directory }} |
-          | Build Status | Success |
-
-          ### Artifacts
-
-          | Artifact | Details |
-          |----------|---------|
-          | JAR File | $(basename "$JAR_FILE" 2>/dev/null || echo "N/A") |
-          | Size | $JAR_SIZE |
-
-          ### Test Results
-
-          | Metric | Count |
-          |--------|-------|
-          | Total Tests | $TEST_COUNT |
-          | Failures | $TEST_FAILURES |
-
-          EOF

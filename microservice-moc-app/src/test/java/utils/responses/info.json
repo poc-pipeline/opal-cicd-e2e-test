@@ -1,0 +1,9 @@
+{
+  "application": "#string",
+  "description": "#string",
+  "vulnerabilities": {
+    "high": "#string",
+    "critical": "#string",
+    "medium": "#string"
+  }
+}

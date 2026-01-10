@@ -1,0 +1,9 @@
+# This file keeps the results directory in git
+# Scan results will be stored here:
+#   - snyk-oauth-results.json
+#   - snyk-oauth-results.sarif
+#   - snyk-oauth-code-results.json
+#   - snyk-oauth-code-results.sarif
+#   - scan-summary.json
+#   - scan.log
+#   - code-scan.log

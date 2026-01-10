@@ -1,0 +1,48 @@
+{
+  "scan_type": "oauth",
+  "timestamp": "2025-12-15T16:39:16Z",
+  "summary": {
+    "total": 57,
+    "critical": 7,
+    "high": 25,
+    "medium": 19,
+    "low": 6
+  },
+  "top_vulnerabilities": [
+    {
+      "id": "SNYK-JAVA-CHQOSLOGBACK-13169722",
+      "severity": "medium",
+      "title": "External Initialization of Trusted Variables or Data Stores",
+      "package": "ch.qos.logback:logback-core",
+      "version": "1.4.11"
+    },
+    {
+      "id": "SNYK-JAVA-CHQOSLOGBACK-6094943",
+      "severity": "high",
+      "title": "Denial of Service (DoS)",
+      "package": "ch.qos.logback:logback-core",
+      "version": "1.4.11"
+    },
+    {
+      "id": "SNYK-JAVA-CHQOSLOGBACK-6097493",
+      "severity": "high",
+      "title": "Uncontrolled Resource Consumption ('Resource Exhaustion')",
+      "package": "ch.qos.logback:logback-core",
+      "version": "1.4.11"
+    },
+    {
+      "id": "SNYK-JAVA-CHQOSLOGBACK-8539865",
+      "severity": "low",
+      "title": "Server-side Request Forgery (SSRF)",
+      "package": "ch.qos.logback:logback-core",
+      "version": "1.4.11"
+    },
+    {
+      "id": "SNYK-JAVA-CHQOSLOGBACK-8539866",
+      "severity": "medium",
+      "title": "Improper Neutralization of Special Elements",
+      "package": "ch.qos.logback:logback-core",
+      "version": "1.4.11"
+    }
+  ]
+}
