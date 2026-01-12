@@ -19,6 +19,18 @@ on:
         description: 'Low vulnerabilities'
         default: '10'
         type: string
+      security_rating:
+        description: 'Security rating (A-E)'
+        default: 'A'
+        type: string
+      reliability_rating:
+        description: 'Reliability rating (A-E)'
+        default: 'A'
+        type: string
+      coverage:
+        description: 'Test coverage percentage'
+        default: '80'
+        type: string
 
 jobs:
   test-gates:
@@ -40,10 +52,15 @@ jobs:
         id: evaluate
         run: |
           echo "Evaluating gates with:"
-          echo "  Critical: ${{ inputs.critical }}"
-          echo "  High: ${{ inputs.high }}"
-          echo "  Medium: ${{ inputs.medium }}"
-          echo "  Low: ${{ inputs.low }}"
+          echo "  Vulnerabilities:"
+          echo "    Critical: ${{ inputs.critical }}"
+          echo "    High: ${{ inputs.high }}"
+          echo "    Medium: ${{ inputs.medium }}"
+          echo "    Low: ${{ inputs.low }}"
+          echo "  Quality Metrics:"
+          echo "    Security Rating: ${{ inputs.security_rating }}"
+          echo "    Reliability Rating: ${{ inputs.reliability_rating }}"
+          echo "    Coverage: ${{ inputs.coverage }}%"
           echo ""
 
           RESPONSE=$(curl -s -X POST http://localhost:8000/api/v1/pipeline/evaluate \
@@ -61,6 +78,12 @@ jobs:
                 "high": ${{ inputs.high }},
                 "medium": ${{ inputs.medium }},
                 "low": ${{ inputs.low }}
+              },
+              "quality": {
+                "status": "OK",
+                "security_rating": "${{ inputs.security_rating }}",
+                "reliability_rating": "${{ inputs.reliability_rating }}",
+                "coverage": ${{ inputs.coverage }}
               }
             }')
 
@@ -92,6 +115,13 @@ jobs:
           | High | ${{ inputs.high }} |
           | Medium | ${{ inputs.medium }} |
           | Low | ${{ inputs.low }} |
+
+          ### Input Quality Metrics
+          | Metric | Value |
+          |--------|-------|
+          | Security Rating | ${{ inputs.security_rating }} |
+          | Reliability Rating | ${{ inputs.reliability_rating }} |
+          | Coverage | ${{ inputs.coverage }}% |
 
           ### Full API Response
           \`\`\`json
