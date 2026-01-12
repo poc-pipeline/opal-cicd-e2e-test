@@ -113,7 +113,7 @@ logs-opa:
 evaluate:
 	@echo "Running gate evaluation..."
 	chmod +x .github/scripts/evaluate-gates.sh
-	DEBUG=true ./.github/scripts/evaluate-gates.sh \
+	REPOSITORY=poc-pipeline/opal-cicd-e2e-test DEBUG=true ./.github/scripts/evaluate-gates.sh \
 		snyk-scanning/results/snyk-results.json \
 		sonarqube-cloud-scanning/results/quality-gate-result.json
 
