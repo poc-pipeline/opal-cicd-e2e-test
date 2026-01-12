@@ -36,6 +36,12 @@ outputs:
   coverage:
     description: 'Test coverage percentage'
     value: ${{ steps.parse.outputs.coverage }}
+  security-rating:
+    description: 'Security rating (A-E)'
+    value: ${{ steps.parse.outputs.security_rating }}
+  reliability-rating:
+    description: 'Reliability rating (A-E)'
+    value: ${{ steps.parse.outputs.reliability_rating }}
 
 runs:
   using: 'composite'
@@ -73,20 +79,27 @@ runs:
           BUGS=$(jq -r '.metrics.bugs // 0' "${{ inputs.quality-results-path }}" 2>/dev/null || echo "0")
           CODE_SMELLS=$(jq -r '.metrics.code_smells // 0' "${{ inputs.quality-results-path }}" 2>/dev/null || echo "0")
           COVERAGE=$(jq -r '.metrics.coverage // 0' "${{ inputs.quality-results-path }}" 2>/dev/null || echo "0")
+          SECURITY_RATING=$(jq -r '.metrics.ratings.security // "Unknown"' "${{ inputs.quality-results-path }}" 2>/dev/null || echo "Unknown")
+          RELIABILITY_RATING=$(jq -r '.metrics.ratings.reliability // "Unknown"' "${{ inputs.quality-results-path }}" 2>/dev/null || echo "Unknown")
         else
           echo "No SonarQube results found, using defaults"
           QG_STATUS="UNKNOWN"
           BUGS=0
           CODE_SMELLS=0
           COVERAGE=0
+          SECURITY_RATING="Unknown"
+          RELIABILITY_RATING="Unknown"
         fi
 
         echo "quality_gate_status=$QG_STATUS" >> $GITHUB_OUTPUT
         echo "bugs=$BUGS" >> $GITHUB_OUTPUT
         echo "code_smells=$CODE_SMELLS" >> $GITHUB_OUTPUT
         echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+        echo "security_rating=$SECURITY_RATING" >> $GITHUB_OUTPUT
+        echo "reliability_rating=$RELIABILITY_RATING" >> $GITHUB_OUTPUT
 
         echo ""
         echo "Parsed Results Summary:"
         echo "  Security: Critical=$CRITICAL, High=$HIGH, Medium=$MEDIUM, Low=$LOW"
         echo "  Quality: Status=$QG_STATUS, Bugs=$BUGS, Code Smells=$CODE_SMELLS, Coverage=$COVERAGE%"
+        echo "  Ratings: Security=$SECURITY_RATING, Reliability=$RELIABILITY_RATING"

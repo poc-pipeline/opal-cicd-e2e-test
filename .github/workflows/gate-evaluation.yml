@@ -81,6 +81,8 @@ jobs:
           bugs: ${{ steps.parse-results.outputs.bugs }}
           code-smells: ${{ steps.parse-results.outputs.code-smells }}
           coverage: ${{ steps.parse-results.outputs.coverage }}
+          security-rating: ${{ steps.parse-results.outputs.security-rating }}
+          reliability-rating: ${{ steps.parse-results.outputs.reliability-rating }}
 
       - name: Generate gate summary
         if: always()
@@ -97,3 +99,5 @@ jobs:
           bugs: ${{ steps.parse-results.outputs.bugs }}
           code-smells: ${{ steps.parse-results.outputs.code-smells }}
           coverage: ${{ steps.parse-results.outputs.coverage }}
+          security-rating: ${{ steps.parse-results.outputs.security-rating }}
+          reliability-rating: ${{ steps.parse-results.outputs.reliability-rating }}

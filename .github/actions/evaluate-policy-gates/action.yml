@@ -50,6 +50,14 @@ inputs:
     description: 'Test coverage percentage'
     required: false
     default: '0'
+  security-rating:
+    description: 'Security rating (A-E)'
+    required: false
+    default: 'Unknown'
+  reliability-rating:
+    description: 'Reliability rating (A-E)'
+    required: false
+    default: 'Unknown'
 
 outputs:
   decision:
@@ -95,17 +103,17 @@ runs:
           "branch": "${{ inputs.branch }}",
           "commit": "${{ inputs.commit-sha }}",
           "user": "${{ inputs.triggered-by }}",
-          "pipeline_source": "github-actions",
+          "environment": "development",
           "vulnerabilities": {
             "critical": ${{ inputs.critical }},
             "high": ${{ inputs.high }},
             "medium": ${{ inputs.medium }},
             "low": ${{ inputs.low }}
           },
-          "quality_metrics": {
-            "quality_gate_status": "${{ inputs.quality-gate-status }}",
-            "bugs": ${{ inputs.bugs }},
-            "code_smells": ${{ inputs.code-smells }},
+          "quality": {
+            "status": "${{ inputs.quality-gate-status }}",
+            "security_rating": "${{ inputs.security-rating }}",
+            "reliability_rating": "${{ inputs.reliability-rating }}",
             "coverage": ${{ inputs.coverage }}
           }
         }
