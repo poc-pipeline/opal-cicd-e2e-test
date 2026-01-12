@@ -21,6 +21,7 @@ NC='\033[0m' # No Color
 # Default values
 PROJECT_KEY="${SONAR_PROJECT_KEY:-cicd-pipeline-poc}"
 SONAR_HOST="${SONAR_HOST_URL:-https://sonarcloud.io}"
+BRANCH="${GITHUB_REF_NAME:-main}"
 QUALITY_GATE_STATUS="UNKNOWN"
 EXIT_CODE=0
 
@@ -86,17 +87,35 @@ echo "   SonarQube Quality Gate Analysis"
 echo "========================================="
 echo ""
 echo "Project Key: $PROJECT_KEY"
+echo "Branch: $BRANCH"
 echo "SonarQube URL: $SONAR_HOST"
 echo ""
 
-# Function to get project status from SonarQube
+# Function to get project status from SonarQube (with branch support)
 get_project_status() {
     local response
+    # First try with branch parameter
     response=$(curl -s -u "$SONAR_TOKEN:" \
-        "${SONAR_HOST}/api/qualitygates/project_status?projectKey=${PROJECT_KEY}" \
+        "${SONAR_HOST}/api/qualitygates/project_status?projectKey=${PROJECT_KEY}&branch=${BRANCH}" \
         2>/dev/null || echo '{"error": "Failed to connect"}')
-    
+
     echo "$response"
+}
+
+# Function to get quality gate status from branches API (fallback)
+get_branch_quality_gate_status() {
+    local response
+    response=$(curl -s -u "$SONAR_TOKEN:" \
+        "${SONAR_HOST}/api/project_branches/list?project=${PROJECT_KEY}" \
+        2>/dev/null || echo '{"error": "Failed to connect"}')
+
+    # Extract quality gate status for the specific branch
+    if command -v jq &> /dev/null; then
+        local status=$(echo "$response" | jq -r ".branches[] | select(.name==\"${BRANCH}\") | .status.qualityGateStatus // \"NONE\"" 2>/dev/null)
+        echo "${status:-NONE}"
+    else
+        echo "NONE"
+    fi
 }
 
 # Function to get project metrics
@@ -162,6 +181,16 @@ if command -v jq &> /dev/null; then
 else
     # Fallback to more specific grep pattern targeting the main projectStatus.status
     QUALITY_GATE_STATUS=$(echo "$QG_RESPONSE" | grep -o '"projectStatus"[^}]*"status":"[^"]*' | grep -o '"status":"[^"]*' | head -n 1 | cut -d'"' -f4 || echo "UNKNOWN")
+fi
+
+# If status is NONE or UNKNOWN, try getting it from the branches API
+if [ "$QUALITY_GATE_STATUS" = "NONE" ] || [ "$QUALITY_GATE_STATUS" = "UNKNOWN" ]; then
+    echo "Quality gate status not found in project_status API, checking branches API..."
+    BRANCH_QG_STATUS=$(get_branch_quality_gate_status)
+    if [ -n "$BRANCH_QG_STATUS" ] && [ "$BRANCH_QG_STATUS" != "NONE" ] && [ "$BRANCH_QG_STATUS" != "null" ]; then
+        echo "Found quality gate status from branches API: $BRANCH_QG_STATUS"
+        QUALITY_GATE_STATUS="$BRANCH_QG_STATUS"
+    fi
 fi
 
 # Get detailed metrics
