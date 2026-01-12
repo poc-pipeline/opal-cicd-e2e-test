@@ -136,7 +136,7 @@ runs:
         # Extract decision and exit code
         DECISION=$(echo "$RESPONSE" | jq -r '.decision // "UNKNOWN"')
         EXIT_CODE=$(echo "$RESPONSE" | jq -r '.exit_code // 1')
-        REASON=$(echo "$RESPONSE" | jq -r '.reason // "No reason provided"')
+        REASON=$(echo "$RESPONSE" | jq -r '.summary // .reason // "No reason provided"')
 
         echo "decision=$DECISION" >> $GITHUB_OUTPUT
         echo "exit_code=$EXIT_CODE" >> $GITHUB_OUTPUT
