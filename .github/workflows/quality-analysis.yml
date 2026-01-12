@@ -47,14 +47,8 @@ jobs:
           
       - name: Download build artifacts
         uses: ./.github/actions/download-build-artifacts
-        
-      - name: Download test results
-        uses: actions/download-artifact@v4
-        with:
-          name: test-results
-          path: .
-        continue-on-error: true
-          
+        # Note: Test results are included in build-artifacts at microservice-moc-app/target/surefire-reports/
+
       - name: Validate SonarQube configuration
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
