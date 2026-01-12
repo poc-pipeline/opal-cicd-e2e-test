@@ -122,10 +122,16 @@ runs:
 
         if [ "$QG_STATUS" = "PASSED" ] || [ "$QG_STATUS" = "OK" ]; then
           QG_ICON="✅"
+          QG_DISPLAY="$QG_STATUS"
         elif [ "$QG_STATUS" = "FAILED" ] || [ "$QG_STATUS" = "ERROR" ]; then
           QG_ICON="❌"
+          QG_DISPLAY="$QG_STATUS"
+        elif [ "$QG_STATUS" = "NONE" ]; then
+          QG_ICON="⚪"
+          QG_DISPLAY="Not Configured"
         else
           QG_ICON="❓"
+          QG_DISPLAY="$QG_STATUS"
         fi
 
         # Determine rating icons
@@ -149,7 +155,7 @@ runs:
 
         | Metric | Value |
         |--------|-------|
-        | Quality Gate | $QG_ICON **$QG_STATUS** |
+        | Quality Gate | $QG_ICON **$QG_DISPLAY** |
         | Security Rating | $SEC_ICON **$SECURITY_RATING** |
         | Reliability Rating | $REL_ICON **$RELIABILITY_RATING** |
         | Coverage | ${COVERAGE}% |
