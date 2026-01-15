@@ -61,6 +61,7 @@ This repository demonstrates a complete CI/CD workflow using:
 - Maven 3.8+
 - Docker & Docker Compose
 - Git
+- GitHub CLI (`gh`) - for triggering workflows
 
 ### Local Development
 
@@ -81,6 +82,140 @@ make health
 # View the Policy Management UI
 open http://localhost:3000
 ```
+
+## Running the E2E Pipeline Locally
+
+The Gate Evaluation job runs on a **self-hosted runner** to access the local Policy Management System. Follow these steps to run the complete E2E pipeline locally.
+
+### Step 1: Start the Policy Management System
+
+The Policy Management System must be running before triggering the pipeline:
+
+```bash
+# Navigate to the policy-management-system repository
+cd /path/to/policy-management-system
+
+# Start all containers (Zookeeper, Kafka, OPAL Server, OPA, API, UI)
+docker compose up -d
+
+# Verify containers are running
+docker compose ps
+
+# Check API health
+curl http://localhost:8000/api/v1/health
+```
+
+**Services started:**
+| Service | Port | Description |
+|---------|------|-------------|
+| Policy API | 8000 | FastAPI backend |
+| Policy UI | 3000 | Vue 3 management interface |
+| OPA | 8181 | Open Policy Agent |
+| OPAL Server | 7002 | Policy synchronization |
+| Kafka | 9092 | Event streaming |
+| Zookeeper | 2181 | Kafka coordination |
+
+### Step 2: Start the Self-Hosted Runner
+
+The GitHub Actions self-hosted runner must be running to execute the Gate Evaluation job:
+
+```bash
+# Navigate to the actions-runner directory
+cd ~/actions-runner
+
+# Start the runner (foreground)
+./run.sh
+
+# Or start in background
+nohup ./run.sh > /tmp/runner.log 2>&1 &
+
+# Verify runner is online
+gh api repos/poc-pipeline/opal-cicd-e2e-test/actions/runners \
+  --jq '.runners[] | {name: .name, status: .status}'
+```
+
+**Expected output:**
+```json
+{"name":"wsl-local-runner","status":"online"}
+```
+
+#### First-Time Runner Setup
+
+If the runner is not configured yet:
+
+```bash
+# Download the runner (Linux x64)
+mkdir -p ~/actions-runner && cd ~/actions-runner
+curl -o actions-runner-linux-x64-2.321.0.tar.gz -L \
+  https://github.com/actions/runner/releases/download/v2.321.0/actions-runner-linux-x64-2.321.0.tar.gz
+tar xzf actions-runner-linux-x64-2.321.0.tar.gz
+
+# Configure the runner (get token from GitHub repo settings)
+./config.sh --url https://github.com/poc-pipeline/opal-cicd-e2e-test \
+  --token YOUR_RUNNER_TOKEN
+
+# Start the runner
+./run.sh
+```
+
+### Step 3: Trigger the Pipeline
+
+Trigger the E2E pipeline using the GitHub CLI:
+
+```bash
+# Trigger the workflow
+gh workflow run e2e-pipeline.yml --repo poc-pipeline/opal-cicd-e2e-test
+
+# Watch the workflow execution
+gh run watch --repo poc-pipeline/opal-cicd-e2e-test
+
+# Or list recent runs
+gh run list --repo poc-pipeline/opal-cicd-e2e-test --workflow=e2e-pipeline.yml --limit 5
+```
+
+### Step 4: View Results
+
+After the pipeline completes:
+
+```bash
+# View run summary
+gh run view <RUN_ID> --repo poc-pipeline/opal-cicd-e2e-test
+
+# View failed logs (if any)
+gh run view <RUN_ID> --repo poc-pipeline/opal-cicd-e2e-test --log-failed
+
+# Check gate evaluation in Policy Management UI
+open http://localhost:3000
+```
+
+### Troubleshooting
+
+**Runner shows as offline:**
+```bash
+# Check if runner process is running
+pgrep -f "Runner.Listener"
+
+# Restart the runner
+cd ~/actions-runner && ./run.sh
+```
+
+**Gate Evaluation job stuck in "queued":**
+- Verify the runner is online and not busy
+- Check that the runner has the `self-hosted` label
+
+**API connection refused:**
+```bash
+# Verify Policy Management System is running
+docker compose -f /path/to/policy-management-system/docker-compose.yml ps
+
+# Check API is responding
+curl http://localhost:8000/api/v1/health
+```
+
+**Gate returns BLOCKED:**
+- This is expected behavior when vulnerabilities exceed thresholds
+- Check thresholds in Policy Management UI at http://localhost:3000
+- Review the gate evaluation summary in GitHub Actions
 
 ### Running the Pipeline
 
