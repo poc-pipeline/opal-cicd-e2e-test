@@ -37,3 +37,6 @@ coverage/
 # Test results
 snyk-results.json
 quality-gate-result.json
+
+# Snyk Security Extension - AI Rules (auto-generated)
+.github/instructions/snyk_rules.instructions.md
