@@ -139,24 +139,234 @@ gh api repos/poc-pipeline/opal-cicd-e2e-test/actions/runners \
 {"name":"wsl-local-runner","status":"online"}
 ```
 
-#### First-Time Runner Setup
+---
 
-If the runner is not configured yet:
+## Local Runner Setup Guide
+
+This section provides detailed instructions for setting up and running a GitHub Actions self-hosted runner for local development.
+
+### Prerequisites
+
+Before setting up the runner, ensure you have:
+
+- **Operating System**: Linux (x64), macOS, or Windows
+- **Git**: Installed and configured
+- **GitHub CLI**: Installed (`gh auth login` completed)
+- **Network Access**: Outbound HTTPS (443) to GitHub
+- **Docker**: Running (required for Policy Management System)
+
+### Installation
+
+#### Step 1: Create Runner Directory
 
 ```bash
-# Download the runner (Linux x64)
 mkdir -p ~/actions-runner && cd ~/actions-runner
-curl -o actions-runner-linux-x64-2.321.0.tar.gz -L \
-  https://github.com/actions/runner/releases/download/v2.321.0/actions-runner-linux-x64-2.321.0.tar.gz
-tar xzf actions-runner-linux-x64-2.321.0.tar.gz
+```
 
-# Configure the runner (get token from GitHub repo settings)
-./config.sh --url https://github.com/poc-pipeline/opal-cicd-e2e-test \
-  --token YOUR_RUNNER_TOKEN
+#### Step 2: Download the Runner
 
-# Start the runner
+Download the latest runner package for your platform:
+
+**Linux (x64):**
+```bash
+RUNNER_VERSION="2.321.0"
+curl -o actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz -L \
+  https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz
+tar xzf actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz
+```
+
+**macOS (x64):**
+```bash
+RUNNER_VERSION="2.321.0"
+curl -o actions-runner-osx-x64-${RUNNER_VERSION}.tar.gz -L \
+  https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-osx-x64-${RUNNER_VERSION}.tar.gz
+tar xzf actions-runner-osx-x64-${RUNNER_VERSION}.tar.gz
+```
+
+**macOS (ARM64/Apple Silicon):**
+```bash
+RUNNER_VERSION="2.321.0"
+curl -o actions-runner-osx-arm64-${RUNNER_VERSION}.tar.gz -L \
+  https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-osx-arm64-${RUNNER_VERSION}.tar.gz
+tar xzf actions-runner-osx-arm64-${RUNNER_VERSION}.tar.gz
+```
+
+> **Tip**: Check [GitHub Actions Runner Releases](https://github.com/actions/runner/releases) for the latest version.
+
+#### Step 3: Generate Registration Token
+
+Get a registration token from GitHub:
+
+**Option A - Using GitHub CLI:**
+```bash
+gh api repos/poc-pipeline/opal-cicd-e2e-test/actions/runners/registration-token \
+  --method POST --jq '.token'
+```
+
+**Option B - Using GitHub UI:**
+1. Go to repository **Settings** → **Actions** → **Runners**
+2. Click **New self-hosted runner**
+3. Copy the token from the configuration command
+
+#### Step 4: Configure the Runner
+
+```bash
+cd ~/actions-runner
+
+./config.sh \
+  --url https://github.com/poc-pipeline/opal-cicd-e2e-test \
+  --token YOUR_REGISTRATION_TOKEN \
+  --name wsl-local-runner \
+  --labels self-hosted,linux,x64,local \
+  --work _work
+```
+
+**Configuration options:**
+| Option | Description |
+|--------|-------------|
+| `--name` | Unique name for this runner |
+| `--labels` | Comma-separated labels for job targeting |
+| `--work` | Working directory for job execution |
+| `--replace` | Replace existing runner with same name |
+
+### Running the Runner
+
+#### Foreground Mode (Development)
+
+```bash
+cd ~/actions-runner
 ./run.sh
 ```
+
+Press `Ctrl+C` to stop.
+
+#### Background Mode
+
+```bash
+cd ~/actions-runner
+nohup ./run.sh > /tmp/runner.log 2>&1 &
+
+# View logs
+tail -f /tmp/runner.log
+```
+
+#### As a Systemd Service (Linux - Recommended for Production)
+
+```bash
+cd ~/actions-runner
+
+# Install the service
+sudo ./svc.sh install
+
+# Start the service
+sudo ./svc.sh start
+
+# Check status
+sudo ./svc.sh status
+
+# View logs
+journalctl -u actions.runner.poc-pipeline-opal-cicd-e2e-test.wsl-local-runner -f
+```
+
+**Service management commands:**
+```bash
+sudo ./svc.sh stop      # Stop the service
+sudo ./svc.sh start     # Start the service
+sudo ./svc.sh status    # Check status
+sudo ./svc.sh uninstall # Remove the service
+```
+
+### Verification
+
+Verify the runner is online and ready:
+
+```bash
+# Check runner status via GitHub API
+gh api repos/poc-pipeline/opal-cicd-e2e-test/actions/runners \
+  --jq '.runners[] | {name: .name, status: .status, busy: .busy, labels: [.labels[].name]}'
+
+# Check local runner process
+pgrep -f "Runner.Listener" && echo "Runner process is running"
+
+# Test connectivity to Policy Management System
+curl -sf http://localhost:8000/api/v1/health && echo "Policy API is accessible"
+```
+
+**Expected output:**
+```json
+{
+  "name": "wsl-local-runner",
+  "status": "online",
+  "busy": false,
+  "labels": ["self-hosted", "linux", "x64", "local"]
+}
+```
+
+### Updating the Runner
+
+```bash
+cd ~/actions-runner
+
+# Stop the runner
+./svc.sh stop  # If running as service
+# Or Ctrl+C if running in foreground
+
+# Download new version
+RUNNER_VERSION="2.322.0"  # Replace with latest version
+curl -o actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz -L \
+  https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz
+tar xzf actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz
+
+# Start the runner
+./run.sh  # Or: sudo ./svc.sh start
+```
+
+### Removing the Runner
+
+```bash
+cd ~/actions-runner
+
+# Stop the runner first
+sudo ./svc.sh stop 2>/dev/null || pkill -f "Runner.Listener"
+
+# Generate removal token
+REMOVE_TOKEN=$(gh api repos/poc-pipeline/opal-cicd-e2e-test/actions/runners/remove-token \
+  --method POST --jq '.token')
+
+# Remove configuration
+./config.sh remove --token $REMOVE_TOKEN
+
+# Uninstall service (if installed)
+sudo ./svc.sh uninstall 2>/dev/null
+
+# Clean up directory (optional)
+cd ~ && rm -rf ~/actions-runner
+```
+
+### Environment Variables
+
+The runner can use environment variables from a `.env` file:
+
+```bash
+# Create .env in the runner directory
+cat > ~/actions-runner/.env << 'EOF'
+POLICY_API_URL=http://localhost:8000
+POLICY_API_KEY=dev-pipeline-key
+EOF
+```
+
+### Runner Labels
+
+The gate evaluation workflow targets runners with the `self-hosted` label. Ensure your runner has this label:
+
+```yaml
+# In .github/workflows/gate-evaluation.yml
+jobs:
+  evaluate:
+    runs-on: self-hosted  # Targets self-hosted runners
+```
+
+---
 
 ### Step 3: Trigger the Pipeline
 

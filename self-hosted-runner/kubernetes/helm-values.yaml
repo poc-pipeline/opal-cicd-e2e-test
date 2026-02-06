@@ -1,0 +1,101 @@
+#
+# helm-values.yaml - Values for Actions Runner Controller (ARC) Scale Set
+#
+# Prerequisites:
+#   1. Install ARC controller:
+#      helm install arc --namespace arc-systems --create-namespace \
+#        oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set-controller
+#
+#   2. Create GitHub token secret:
+#      kubectl create secret generic github-token \
+#        --namespace arc-runners \
+#        --from-literal=github_token=<YOUR_PAT>
+#
+# Installation:
+#   helm install runner-set \
+#     --namespace arc-runners \
+#     --create-namespace \
+#     -f helm-values.yaml \
+#     oci://ghcr.io/actions/actions-runner-controller-charts/gha-runner-scale-set
+#
+# Uninstall:
+#   helm uninstall runner-set --namespace arc-runners
+#
+
+# GitHub repository URL
+githubConfigUrl: "https://github.com/poc-pipeline/opal-cicd-e2e-test"
+
+# Authentication - use the secret created above
+githubConfigSecret:
+  name: github-token
+
+# Runner configuration
+runnerScaleSetName: "opal-e2e-runners"
+
+# Scaling configuration
+minRunners: 0
+maxRunners: 5
+
+# Runner labels - must include 'self-hosted' for the workflow
+# The workflow uses: runs-on: self-hosted
+runnerGroup: "Default"
+
+# Container mode - use Kubernetes mode for isolation
+containerMode:
+  type: "kubernetes"
+  kubernetesModeWorkVolumeClaim:
+    accessModes: ["ReadWriteOnce"]
+    storageClassName: "standard"
+    resources:
+      requests:
+        storage: 10Gi
+
+# Runner pod template
+template:
+  spec:
+    containers:
+      - name: runner
+        image: ghcr.io/actions/actions-runner:latest
+        imagePullPolicy: Always
+        resources:
+          limits:
+            cpu: "2"
+            memory: "4Gi"
+          requests:
+            cpu: "500m"
+            memory: "1Gi"
+        env:
+          # Policy API URL - update this to match your deployment
+          # If Policy API is in the same cluster:
+          - name: POLICY_API_URL
+            value: "http://policy-api.policy-system.svc.cluster.local:8000"
+          # Or if using an external URL:
+          # - name: POLICY_API_URL
+          #   value: "https://policy-api.example.com"
+
+    # Node selector (optional)
+    # nodeSelector:
+    #   kubernetes.io/os: linux
+
+    # Tolerations (optional)
+    # tolerations:
+    #   - key: "dedicated"
+    #     operator: "Equal"
+    #     value: "ci-runner"
+    #     effect: "NoSchedule"
+
+    # Service account (optional - for workload identity)
+    # serviceAccountName: github-runner-sa
+
+# Listener pod template (the controller component)
+listenerTemplate:
+  spec:
+    containers:
+      - name: listener
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"

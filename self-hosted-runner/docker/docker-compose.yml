@@ -1,0 +1,61 @@
+#
+# docker-compose.yml - Self-hosted runner with host networking
+#
+# This configuration uses host networking, which means:
+# - localhost:8000 from inside the container reaches host services
+# - No network isolation (container shares host network stack)
+# - Simplest setup for accessing Policy Management System
+#
+# Usage:
+#   cp .env.example .env
+#   # Edit .env with your registration token
+#   docker compose up -d
+#
+# Logs:
+#   docker compose logs -f
+#
+# Stop:
+#   docker compose down
+#
+
+services:
+  github-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Or use the official image directly:
+    # image: ghcr.io/actions/actions-runner:latest
+
+    container_name: github-runner
+
+    # Host networking - container uses host's network stack
+    # This allows localhost:8000 to work as expected
+    network_mode: host
+
+    environment:
+      - RUNNER_NAME=${RUNNER_NAME:-docker-runner}
+      - RUNNER_TOKEN=${RUNNER_TOKEN}
+      - GITHUB_REPOSITORY=${GITHUB_REPOSITORY:-poc-pipeline/opal-cicd-e2e-test}
+      - RUNNER_LABELS=${RUNNER_LABELS:-self-hosted,linux,x64,docker}
+
+    # Mount Docker socket for Docker-outside-of-Docker
+    # This allows the runner to build and run Docker containers
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persist runner work directory across restarts
+      - runner-work:/home/runner/_work
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Resource limits (optional)
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+
+volumes:
+  runner-work:
+    name: github-runner-work

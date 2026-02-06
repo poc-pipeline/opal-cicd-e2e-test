@@ -1,0 +1,65 @@
+#
+# docker-compose.bridge.yml - Self-hosted runner with bridge networking
+#
+# This configuration uses bridge networking with host.docker.internal
+# to access host services. More isolated than host networking.
+#
+# IMPORTANT: When using this configuration, update the workflow to use:
+#   api-url: http://host.docker.internal:8000
+#
+# Usage:
+#   cp .env.example .env
+#   # Edit .env with your registration token
+#   docker compose -f docker-compose.bridge.yml up -d
+#
+# Logs:
+#   docker compose -f docker-compose.bridge.yml logs -f
+#
+# Stop:
+#   docker compose -f docker-compose.bridge.yml down
+#
+
+services:
+  github-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+
+    container_name: github-runner-bridge
+
+    # Bridge networking with host access
+    networks:
+      - runner-network
+
+    # Enable host.docker.internal DNS resolution
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    environment:
+      - RUNNER_NAME=${RUNNER_NAME:-docker-runner-bridge}
+      - RUNNER_TOKEN=${RUNNER_TOKEN}
+      - GITHUB_REPOSITORY=${GITHUB_REPOSITORY:-poc-pipeline/opal-cicd-e2e-test}
+      - RUNNER_LABELS=${RUNNER_LABELS:-self-hosted,linux,x64,docker,bridge}
+      # Set policy API URL for bridge networking
+      - POLICY_API_URL=http://host.docker.internal:8000
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - runner-work-bridge:/home/runner/_work
+
+    restart: unless-stopped
+
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+
+networks:
+  runner-network:
+    driver: bridge
+
+volumes:
+  runner-work-bridge:
+    name: github-runner-work-bridge

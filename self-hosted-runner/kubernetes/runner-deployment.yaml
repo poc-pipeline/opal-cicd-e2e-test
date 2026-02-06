@@ -1,0 +1,180 @@
+#
+# runner-deployment.yaml - Manual Kubernetes deployment for GitHub Actions runner
+#
+# This is a simpler alternative to ARC for environments where you don't need
+# auto-scaling and prefer a fixed number of runners.
+#
+# Prerequisites:
+#   1. Create namespace:
+#      kubectl create namespace github-runners
+#
+#   2. Create secrets:
+#      kubectl create secret generic runner-secrets \
+#        --namespace github-runners \
+#        --from-literal=RUNNER_TOKEN=<your-token> \
+#        --from-literal=GITHUB_REPOSITORY=poc-pipeline/opal-cicd-e2e-test
+#
+# Apply:
+#   kubectl apply -f runner-deployment.yaml
+#
+# Check status:
+#   kubectl get pods -n github-runners
+#   kubectl logs -n github-runners -l app=github-runner -f
+#
+# Delete:
+#   kubectl delete -f runner-deployment.yaml
+#
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: github-runners
+  labels:
+    app.kubernetes.io/name: github-runners
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: github-runner
+  namespace: github-runners
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: runner-config
+  namespace: github-runners
+data:
+  RUNNER_LABELS: "self-hosted,linux,x64,kubernetes"
+  RUNNER_WORKDIR: "_work"
+  # Update this if Policy API is deployed in the cluster
+  POLICY_API_URL: "http://policy-api.policy-system.svc.cluster.local:8000"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-runner
+  namespace: github-runners
+  labels:
+    app: github-runner
+spec:
+  replicas: 1  # Adjust based on your needs
+  selector:
+    matchLabels:
+      app: github-runner
+  template:
+    metadata:
+      labels:
+        app: github-runner
+    spec:
+      serviceAccountName: github-runner
+
+      # Ensure runners don't get scheduled on the same node
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - github-runner
+                topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: runner
+          image: ghcr.io/actions/actions-runner:latest
+          imagePullPolicy: Always
+
+          env:
+            # From Secret
+            - name: RUNNER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: runner-secrets
+                  key: RUNNER_TOKEN
+            - name: GITHUB_REPOSITORY
+              valueFrom:
+                secretKeyRef:
+                  name: runner-secrets
+                  key: GITHUB_REPOSITORY
+
+            # From ConfigMap
+            - name: RUNNER_LABELS
+              valueFrom:
+                configMapKeyRef:
+                  name: runner-config
+                  key: RUNNER_LABELS
+            - name: RUNNER_WORKDIR
+              valueFrom:
+                configMapKeyRef:
+                  name: runner-config
+                  key: RUNNER_WORKDIR
+            - name: POLICY_API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: runner-config
+                  key: POLICY_API_URL
+
+            # Dynamic runner name based on pod name
+            - name: RUNNER_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2"
+              memory: "4Gi"
+
+          volumeMounts:
+            - name: work
+              mountPath: /home/runner/_work
+
+          # Health checks
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "pgrep -f Runner.Listener"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - "pgrep -f Runner.Listener"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+      volumes:
+        - name: work
+          emptyDir:
+            sizeLimit: 10Gi
+
+      # Graceful shutdown
+      terminationGracePeriodSeconds: 60
+
+---
+# Optional: PodDisruptionBudget for high availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: github-runner-pdb
+  namespace: github-runners
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: github-runner
