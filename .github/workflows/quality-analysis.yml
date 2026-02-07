@@ -101,7 +101,7 @@ jobs:
               -Dsonar.host.url=https://sonarcloud.io \
               -Dsonar.token=$SONAR_TOKEN \
               -Dsonar.organization=${SONAR_ORGANIZATION:-your-organization-key} \
-              -Dsonar.projectKey=${SONAR_PROJECT_KEY:-cicd-pipeline-poc} \
+              -Dsonar.projectKey=${SONAR_PROJECT_KEY:-poc-pipeline_opal-cicd-e2e-test} \
               -Dsonar.projectName="CI/CD Pipeline Security POC" \
               -Dsonar.projectVersion=1.0.0 \
               -Dsonar.java.binaries=target/classes \
@@ -132,7 +132,7 @@ jobs:
             # Disable exit on error temporarily to capture exit code
             set +e
             ./sonarqube-cloud-scanning/scripts/analyze-quality-gates.sh \
-              -k "${SONAR_PROJECT_KEY:-cicd-pipeline-poc}" \
+              -k "${SONAR_PROJECT_KEY:-poc-pipeline_opal-cicd-e2e-test}" \
               -o sonarqube-cloud-scanning/results/quality-gate-result.json
             SONAR_GATE_EXIT_CODE=$?
             set -e

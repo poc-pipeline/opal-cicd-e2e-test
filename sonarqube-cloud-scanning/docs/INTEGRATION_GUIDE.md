@@ -99,7 +99,7 @@ on:
 |----------|----------|-------------|
 | `SONAR_TOKEN` | Yes | Authentication token for SonarQube Cloud |
 | `SONAR_ORGANIZATION` | Yes | Organization identifier in SonarQube Cloud |
-| `SONAR_PROJECT_KEY` | No | Project key (defaults to `cicd-pipeline-poc`) |
+| `SONAR_PROJECT_KEY` | No | Project key (defaults to `poc-pipeline_opal-cicd-e2e-test`) |
 | `GITHUB_TOKEN` | Yes | Automatically provided by GitHub Actions |
 
 ## Security Gates Integration

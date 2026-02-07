@@ -25,7 +25,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!-- SonarQube Properties -->
         <sonar.organization>poc-pipeline</sonar.organization>
-        <sonar.projectKey>poc-pipeline_poc-pipeline</sonar.projectKey>
+        <sonar.projectKey>poc-pipeline_opal-cicd-e2e-test</sonar.projectKey>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
         <sonar.java.coveragePlugin>jacoco</sonar.java.coveragePlugin>
         <sonar.coverage.jacoco.xmlReportPaths>${project.build.directory}/site/jacoco/jacoco.xml

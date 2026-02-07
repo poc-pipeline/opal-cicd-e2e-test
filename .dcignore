@@ -1,0 +1,32 @@
+# Build artifacts
+target/
+*.jar
+*.war
+*.class
+
+# Dependencies and package managers
+node_modules/
+.mvn/
+
+# Test fixtures and mock data
+**/test/
+**/tests/
+
+# CI/CD and infrastructure
+.github/
+docker-image.tar
+
+# Scan results (not source code)
+snyk-scanning/results/
+sonarqube-cloud-scanning/results/
+
+# Documentation
+*.md
+
+# IDE and config
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/

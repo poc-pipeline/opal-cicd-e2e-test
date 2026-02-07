@@ -1,0 +1,28 @@
+{
+    "snyk.advanced.organization": "1292928b-6c19-41c7-8f7b-19fa9357d411",
+    "snyk.advanced.autoSelectOrganization": true,
+    "snyk.features.openSourceSecurity": true,
+    "snyk.features.codeSecurity": true,
+    "snyk.features.codeQuality": true,
+    "snyk.features.iacSecurity": false,
+    "snyk.severity": {
+        "critical": true,
+        "high": true,
+        "medium": true,
+        "low": false
+    },
+    "snyk.scanningMode": "automatic",
+
+    "sonarlint.connectedMode.connections.sonarcloud": [
+        {
+            "organizationKey": "poc-pipeline",
+            "connectionId": "poc-pipeline"
+        }
+    ],
+    "sonarlint.connectedMode.project": {
+        "connectionId": "poc-pipeline",
+        "projectKey": "poc-pipeline_opal-cicd-e2e-test"
+    },
+    "sonarlint.focusOnNewCode": true,
+    "sonarlint.disableRulesByScope.iac": true
+}

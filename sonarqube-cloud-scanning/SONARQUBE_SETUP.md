@@ -13,8 +13,8 @@ The project currently has **Automatic Analysis** enabled in SonarQube Cloud, whi
    - Sign in with your GitHub account
 
 2. **Navigate to Your Project**
-   - Go to project: `poc-pipeline_poc-pipeline`
-   - Or direct link: https://sonarcloud.io/project/configuration?id=poc-pipeline_poc-pipeline
+   - Go to project: `poc-pipeline_opal-cicd-e2e-test`
+   - Or direct link: https://sonarcloud.io/project/configuration?id=poc-pipeline_opal-cicd-e2e-test
 
 3. **Disable Automatic Analysis**
    - Go to **Administration** → **Analysis Method**
@@ -39,7 +39,7 @@ If you prefer to keep Automatic Analysis:
 
 ## Current Configuration
 
-- **Project Key**: poc-pipeline_poc-pipeline
+- **Project Key**: poc-pipeline_opal-cicd-e2e-test
 - **Organization**: poc-pipeline
 - **Analysis Method**: Automatic Analysis (ENABLED) ⚠️
 - **Manual Analysis**: BLOCKED due to Automatic Analysis
@@ -74,6 +74,6 @@ After successful analysis, check quality gate:
 
 ```bash
 ./sonarqube-cloud-scanning/scripts/analyze-quality-gates.sh \
-  -k poc-pipeline_poc-pipeline \
+  -k poc-pipeline_opal-cicd-e2e-test \
   -o sonarqube-cloud-scanning/results/quality-gate-result.json
 ```
